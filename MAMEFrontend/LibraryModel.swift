@@ -7,6 +7,8 @@ final class LibraryModel {
     var mameBinaryPath = ""
     var romPath = ""
     var historyPath = ""
+    var catverPath = ""
+    var artworkPath = ""
 
     // Catalog state
     private(set) var games: [Game] = []
@@ -21,11 +23,13 @@ final class LibraryModel {
     var searchText = ""
     var showFavoritesOnly = false
     var hideClones = false
+    var genreFilter: String?          // nil = all categories
 
     // Persisted state
     private(set) var favorites: Set<String> = []
     private var lastPlayedByName: [String: Date] = [:]
     private var yearCache: [String: Int] = [:]
+    private var zipEntryCache: [String: Set<String>] = [:]   // artwork zip path -> entry names
 
     private let favoritesKey = "favorites"
     private let lastPlayedKey = "lastPlayed"
@@ -37,11 +41,18 @@ final class LibraryModel {
 
     var isConfigured: Bool { !mameBinaryPath.isEmpty && !romPath.isEmpty }
     var historyConfigured: Bool { !historyPath.isEmpty }
+    var artworkConfigured: Bool { !artworkPath.isEmpty }
+
+    /// Distinct top-level genre categories present in the library, sorted.
+    var categories: [String] {
+        Array(Set(games.map { $0.category })).filter { !$0.isEmpty }.sorted()
+    }
 
     var filteredGames: [Game] {
         var result = games
         if showFavoritesOnly { result = result.filter { favorites.contains($0.shortName) } }
         if hideClones        { result = result.filter { !$0.isClone } }
+        if let category = genreFilter { result = result.filter { $0.category == category } }
         if !searchText.isEmpty {
             let needle = searchText.lowercased()
             result = result.filter {
@@ -62,13 +73,18 @@ final class LibraryModel {
         }
         isLoading = true
         errorMessage = nil
+        zipEntryCache = [:]
 
         let runner = MAMERunner(binaryPath: mameBinaryPath, romPath: romPath)
         let path = romPath
+        let catver = catverPath
         do {
             async let nameMapTask = runner.listFull()
             async let clonesTask  = runner.listClones()
             let owned = await Task.detached { Self.scanOwnedShortNames(in: path) }.value
+            let genreIndex: [String: String] = catver.isEmpty
+                ? [:]
+                : (await Task.detached { (try? CatverStore.index(fromFileAt: catver)) ?? [:] }.value)
             let nameMap = try await nameMapTask
             let cloneOf = try await clonesTask
 
@@ -86,12 +102,13 @@ final class LibraryModel {
                 let parent = cloneOf[short]
                 let played = lastPlayedByName[short] ?? .distantPast
                 let year = yearCache[short] ?? 0
+                let genre = genreIndex[short] ?? (parent.flatMap { genreIndex[$0] }) ?? ""
                 if let desc = nameMap[short] {
                     return Game(shortName: short, description: desc,
-                                parent: parent, lastPlayed: played, year: year)
+                                parent: parent, lastPlayed: played, year: year, genre: genre)
                 } else {
                     return Game(shortName: short, description: short, isUnknown: true,
-                                parent: parent, lastPlayed: played, year: year)
+                                parent: parent, lastPlayed: played, year: year, genre: genre)
                 }
             }
             resolved.sort {
@@ -138,7 +155,6 @@ final class LibraryModel {
         saveYearCache()
     }
 
-    /// Loads and indexes the history file (if configured), off the main thread.
     @MainActor
     func loadHistory() async {
         let path = historyPath
@@ -157,11 +173,75 @@ final class LibraryModel {
         }
     }
 
-    /// History text for a game, falling back to its parent set for clones.
     func history(for game: Game) -> String? {
         if let text = historyIndex[game.shortName] { return text }
         if let parent = game.parent { return historyIndex[parent] }
         return nil
+    }
+
+    /// Loads artwork bytes for a game — extracted files first, then inside MAME
+    /// artwork zips — with a parent-set fallback for clones. Runs its work
+    /// off-main and caches each zip's entry list so misses don't re-spawn `unzip`.
+    @MainActor
+    func loadArtwork(for game: Game) async -> Data? {
+        guard artworkConfigured else { return nil }
+        let base = artworkPath
+        let names = [game.shortName] + (game.parent.map { [$0] } ?? [])
+
+        // 1) Extracted image files.
+        if let data = await Task.detached(operation: {
+            ArtworkStore.extractedFile(base: base, names: names)
+        }).value {
+            return data
+        }
+
+        // 2) Per-type extras zips (progetto-SNAPS style): snap.zip etc. with
+        //    <shortname>.png entries.
+        let baseURL = URL(fileURLWithPath: base)
+        let fm = FileManager.default
+        for zipName in ArtworkStore.zipNames {
+            let zipURL = baseURL.appendingPathComponent(zipName)
+            guard fm.fileExists(atPath: zipURL.path) else { continue }
+            let entries = await entrySet(for: zipURL)
+            for name in names {
+                for ext in ArtworkStore.exts {
+                    guard let entry = ArtworkStore.entry(in: entries,
+                                                         matchingBasename: "\(name).\(ext)")
+                    else { continue }
+                    if let data = await Task.detached(operation: {
+                        ArtworkStore.unzipEntry(archive: zipURL, entry: entry)
+                    }).value {
+                        return data
+                    }
+                }
+            }
+        }
+
+        // 3) Per-game artwork zips (MAME bezel/overlay packs): <shortname>.zip
+        //    containing a default.lay plus one or more images with arbitrary names.
+        for name in names {
+            let gameZip = baseURL.appendingPathComponent("\(name).zip")
+            guard fm.fileExists(atPath: gameZip.path) else { continue }
+            let entries = await entrySet(for: gameZip)
+            guard let entry = ArtworkStore.bestImageEntry(in: entries, preferNames: names)
+            else { continue }
+            if let data = await Task.detached(operation: {
+                ArtworkStore.unzipEntry(archive: gameZip, entry: entry)
+            }).value {
+                return data
+            }
+        }
+        return nil
+    }
+
+    @MainActor
+    private func entrySet(for zipURL: URL) async -> Set<String> {
+        if let cached = zipEntryCache[zipURL.path] { return cached }
+        let set = await Task.detached(operation: {
+            ArtworkStore.listEntries(archive: zipURL)
+        }).value
+        zipEntryCache[zipURL.path] = set
+        return set
     }
 
     // MARK: - Actions

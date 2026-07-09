@@ -16,21 +16,29 @@ struct Game: Identifiable, Hashable {
     /// nil for parents and standalone machines.
     let parent: String?
 
-    /// Most recent launch time. `.distantPast` means "never played". Stored as a
-    /// non-optional Date so it can drive column sorting via a plain key path.
+    /// Most recent launch time. `.distantPast` means "never played".
     var lastPlayed: Date
 
-    /// Release year from `-listxml`. 0 means unknown / not fetched yet. Kept as
-    /// a plain Int so it sorts directly; filled in progressively after load.
+    /// Release year from `-listxml`. 0 means unknown / not fetched yet.
     var year: Int
+
+    /// Genre from `catver.ini`, e.g. "Shooter / Flying Vertical". Empty = none.
+    var genre: String
 
     var isClone: Bool { parent != nil }
     var hasBeenPlayed: Bool { lastPlayed != .distantPast }
     var hasYear: Bool { year > 0 }
 
-    /// Case-folded title used as the sort key for the Game column so ordering is
-    /// case-insensitive.
+    /// Case-folded title used as the sort key for the Game column.
     var sortTitle: String { description.lowercased() }
+
+    /// Top-level genre category (the part before "/"), used for filtering.
+    /// Empty when no genre is known.
+    var category: String {
+        guard !genre.isEmpty else { return "" }
+        return genre.split(separator: "/").first
+            .map { $0.trimmingCharacters(in: .whitespaces) } ?? genre
+    }
 
     var id: String { shortName }
 
@@ -39,12 +47,14 @@ struct Game: Identifiable, Hashable {
          isUnknown: Bool = false,
          parent: String? = nil,
          lastPlayed: Date = .distantPast,
-         year: Int = 0) {
+         year: Int = 0,
+         genre: String = "") {
         self.shortName = shortName
         self.description = description
         self.isUnknown = isUnknown
         self.parent = parent
         self.lastPlayed = lastPlayed
         self.year = year
+        self.genre = genre
     }
 }

@@ -7,11 +7,14 @@ struct ContentView: View {
     @AppStorage("mameBinaryPath") private var mameBinaryPath = ""
     @AppStorage("romPath") private var romPath = ""
     @AppStorage("historyPath") private var historyPath = ""
+    @AppStorage("catverPath") private var catverPath = ""
+    @AppStorage("artworkPath") private var artworkPath = ""
 
     @State private var selection: Game.ID?
     @State private var showingSettings = false
     @State private var showInspector = true
     @State private var sortOrder: [KeyPathComparator<Game>] = [KeyPathComparator(\.sortTitle)]
+    @State private var artwork: NSImage?
 
     private var sortedGames: [Game] { model.filteredGames.sorted(using: sortOrder) }
 
@@ -26,12 +29,14 @@ struct ContentView: View {
                 .navigationTitle("MAME")
                 .toolbar { toolbarContent }
                 .searchable(text: $model.searchText, prompt: "Search games")
-                .inspector(isPresented: $showInspector) { historyPanel }
+                .inspector(isPresented: $showInspector) { detailPanel }
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView(mameBinaryPath: $mameBinaryPath,
                          romPath: $romPath,
-                         historyPath: $historyPath) {
+                         historyPath: $historyPath,
+                         catverPath: $catverPath,
+                         artworkPath: $artworkPath) {
                 syncAndReload()
             }
         }
@@ -39,6 +44,12 @@ struct ContentView: View {
             syncConfig()
             if model.isConfigured { await model.reload() }
             await model.loadHistory()
+        }
+        .task(id: [selection ?? "", artworkPath]) {
+            artwork = nil
+            guard let game = selectedGame else { return }
+            let data = await model.loadArtwork(for: game)
+            if let data { artwork = NSImage(data: data) }
         }
     }
 
@@ -103,12 +114,18 @@ struct ContentView: View {
                 }
             }
 
+            TableColumn("Genre", value: \.genre) { game in
+                Text(game.genre.isEmpty ? "—" : game.genre)
+                    .foregroundStyle(game.genre.isEmpty ? .tertiary : .secondary)
+            }
+            .width(min: 120, ideal: 180)
+
             TableColumn("Short name", value: \.shortName) { game in
                 Text(game.shortName)
                     .font(.system(.body, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
-            .width(min: 100, ideal: 140)
+            .width(min: 90, ideal: 130)
 
             TableColumn("Year", value: \.year) { game in
                 Text(game.hasYear ? String(game.year) : "—")
@@ -154,6 +171,7 @@ struct ContentView: View {
                     Button("Show all games") {
                         model.showFavoritesOnly = false
                         model.hideClones = false
+                        model.genreFilter = nil
                         model.searchText = ""
                     }
                     .buttonStyle(.borderedProminent)
@@ -171,62 +189,42 @@ struct ContentView: View {
             .foregroundStyle(.secondary)
     }
 
-    // MARK: - History inspector
+    // MARK: - Detail inspector (artwork + history)
 
     @ViewBuilder
-    private var historyPanel: some View {
+    private var detailPanel: some View {
         Group {
-            if !model.historyConfigured {
-                ContentUnavailableView {
-                    Label("No history file", systemImage: "book.closed")
-                } description: {
-                    Text("Choose a history.xml or history.dat in Settings to show game history and trivia.")
-                } actions: {
-                    Button("Open Settings") { showingSettings = true }
-                }
-            } else if let error = model.historyError, model.historyIndex.isEmpty {
-                ContentUnavailableView {
-                    Label("Couldn't load history", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(error)
-                }
-            } else if let game = selectedGame {
-                if let text = model.history(for: game) {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 12) {
-                            historyHeader(for: game)
-                            Text(text)
-                                .font(.callout)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .padding()
-                    }
-                } else {
+            if let game = selectedGame {
+                ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        historyHeader(for: game)
-                        ContentUnavailableView {
-                            Label("No history", systemImage: "book.closed")
-                        } description: {
-                            Text("No entry for \(game.shortName)"
-                                 + (game.parent.map { " or its parent \($0)" } ?? "") + ".")
+                        if let artwork {
+                            Image(nsImage: artwork)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(maxWidth: .infinity)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                                )
                         }
+                        detailHeader(for: game)
+                        Divider()
+                        historyBody(for: game)
                     }
                     .padding()
-                    .frame(maxHeight: .infinity, alignment: .top)
                 }
             } else {
                 ContentUnavailableView("No selection",
                                        systemImage: "hand.point.up.left",
-                                       description: Text("Select a game to see its history."))
+                                       description: Text("Select a game to see its details."))
             }
         }
-        .inspectorColumnWidth(min: 260, ideal: 340, max: 520)
+        .inspectorColumnWidth(min: 260, ideal: 340, max: 560)
     }
 
     @ViewBuilder
-    private func historyHeader(for game: Game) -> some View {
+    private func detailHeader(for game: Game) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(game.description)
                 .font(.headline)
@@ -240,8 +238,32 @@ struct ContentView: View {
                 }
             }
             .foregroundStyle(.secondary)
+            if !game.genre.isEmpty {
+                Text(game.genre).font(.caption).foregroundStyle(.secondary)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func historyBody(for game: Game) -> some View {
+        if let text = model.history(for: game) {
+            Text(text)
+                .font(.callout)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else if !model.historyConfigured {
+            Text("Set a history file in Settings to show history and trivia.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else if let error = model.historyError {
+            Text(error).font(.caption).foregroundStyle(.secondary)
+        } else {
+            Text("No history entry for \(game.shortName).")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
     }
 
     // MARK: - Toolbar
@@ -261,6 +283,17 @@ struct ContentView: View {
             }
             .disabled(!model.isConfigured || model.isLoading)
 
+            if !model.categories.isEmpty {
+                Picker("Genre", selection: $model.genreFilter) {
+                    Text("All genres").tag(String?.none)
+                    ForEach(model.categories, id: \.self) { category in
+                        Text(category).tag(String?.some(category))
+                    }
+                }
+                .pickerStyle(.menu)
+                .help("Filter by genre")
+            }
+
             Toggle(isOn: $model.showFavoritesOnly) {
                 Label("Favorites only", systemImage: model.showFavoritesOnly ? "star.fill" : "star")
             }
@@ -278,9 +311,9 @@ struct ContentView: View {
             }
 
             Button { showInspector.toggle() } label: {
-                Label("History", systemImage: "info.circle")
+                Label("Details", systemImage: "info.circle")
             }
-            .help("Show history & trivia")
+            .help("Show artwork, history & trivia")
         }
     }
 
@@ -294,6 +327,8 @@ struct ContentView: View {
         model.mameBinaryPath = mameBinaryPath
         model.romPath = romPath
         model.historyPath = historyPath
+        model.catverPath = catverPath
+        model.artworkPath = artworkPath
     }
 
     private func syncAndReload() {
@@ -311,12 +346,14 @@ struct SettingsView: View {
     @Binding var mameBinaryPath: String
     @Binding var romPath: String
     @Binding var historyPath: String
+    @Binding var catverPath: String
+    @Binding var artworkPath: String
     var onSave: () -> Void
 
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
             Text("Settings").font(.title2).bold()
 
             pathRow(title: "MAME binary", text: $mameBinaryPath,
@@ -325,6 +362,10 @@ struct SettingsView: View {
                     chooseDirectory: true, prompt: "~/roms")
             pathRow(title: "History file (optional)", text: $historyPath,
                     chooseDirectory: false, prompt: "~/history.xml or history.dat")
+            pathRow(title: "catver.ini (optional)", text: $catverPath,
+                    chooseDirectory: false, prompt: "~/catver.ini")
+            pathRow(title: "Artwork folder (optional)", text: $artworkPath,
+                    chooseDirectory: true, prompt: "~/mame-artwork")
 
             HStack {
                 Spacer()
@@ -334,7 +375,7 @@ struct SettingsView: View {
             }
         }
         .padding(20)
-        .frame(width: 520)
+        .frame(width: 540)
     }
 
     @ViewBuilder

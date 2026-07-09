@@ -6,7 +6,7 @@
 	<integer>12</integer>
 	<key>logs</key>
 	<dict>
-		<key>E3393A53-EABB-4D85-9299-18DB6E1A5BA9</key>
+		<key>02B208EF-E914-4F08-A5F2-4439330B091D</key>
 		<dict>
 			<key>className</key>
 			<string>IDECommandLineBuildLog</string>
@@ -15,7 +15,91 @@
 			<key>domainType</key>
 			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
 			<key>fileName</key>
-			<string>E3393A53-EABB-4D85-9299-18DB6E1A5BA9.xcactivitylog</string>
+			<string>02B208EF-E914-4F08-A5F2-4439330B091D.xcactivitylog</string>
+			<key>hasPrimaryLog</key>
+			<true/>
+			<key>primaryObservable</key>
+			<dict>
+				<key>highLevelStatus</key>
+				<string>W</string>
+				<key>totalNumberOfAnalyzerIssues</key>
+				<integer>0</integer>
+				<key>totalNumberOfErrors</key>
+				<integer>0</integer>
+				<key>totalNumberOfTestFailures</key>
+				<integer>0</integer>
+				<key>totalNumberOfWarnings</key>
+				<integer>7</integer>
+			</dict>
+			<key>schemeIdentifier-containerName</key>
+			<string>MAMEFrontend project</string>
+			<key>schemeIdentifier-schemeName</key>
+			<string>MAMEFrontend</string>
+			<key>schemeIdentifier-sharedScheme</key>
+			<integer>1</integer>
+			<key>signature</key>
+			<string>Building project MAMEFrontend with scheme MAMEFrontend and configuration Release</string>
+			<key>timeStartedRecording</key>
+			<real>805304148.76600099</real>
+			<key>timeStoppedRecording</key>
+			<real>805304156.83986199</real>
+			<key>title</key>
+			<string>Building project MAMEFrontend with scheme MAMEFrontend and configuration Release</string>
+			<key>uniqueIdentifier</key>
+			<string>02B208EF-E914-4F08-A5F2-4439330B091D</string>
+		</dict>
+		<key>7E1BF74C-87ED-400C-B1D1-D6D09BF909BA</key>
+		<dict>
+			<key>className</key>
+			<string>IDECommandLineBuildLog</string>
+			<key>documentTypeString</key>
+			<string>&lt;nil&gt;</string>
+			<key>domainType</key>
+			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
+			<key>fileName</key>
+			<string>7E1BF74C-87ED-400C-B1D1-D6D09BF909BA.xcactivitylog</string>
+			<key>hasPrimaryLog</key>
+			<true/>
+			<key>primaryObservable</key>
+			<dict>
+				<key>highLevelStatus</key>
+				<string>W</string>
+				<key>totalNumberOfAnalyzerIssues</key>
+				<integer>0</integer>
+				<key>totalNumberOfErrors</key>
+				<integer>0</integer>
+				<key>totalNumberOfTestFailures</key>
+				<integer>0</integer>
+				<key>totalNumberOfWarnings</key>
+				<integer>7</integer>
+			</dict>
+			<key>schemeIdentifier-containerName</key>
+			<string>MAMEFrontend project</string>
+			<key>schemeIdentifier-schemeName</key>
+			<string>MAMEFrontend</string>
+			<key>schemeIdentifier-sharedScheme</key>
+			<integer>1</integer>
+			<key>signature</key>
+			<string>Building project MAMEFrontend with scheme MAMEFrontend and configuration Release</string>
+			<key>timeStartedRecording</key>
+			<real>805307001.27369201</real>
+			<key>timeStoppedRecording</key>
+			<real>805307005.31777406</real>
+			<key>title</key>
+			<string>Building project MAMEFrontend with scheme MAMEFrontend and configuration Release</string>
+			<key>uniqueIdentifier</key>
+			<string>7E1BF74C-87ED-400C-B1D1-D6D09BF909BA</string>
+		</dict>
+		<key>92FF3BEA-6E43-4125-9AE5-F147CBA1385A</key>
+		<dict>
+			<key>className</key>
+			<string>IDECommandLineBuildLog</string>
+			<key>documentTypeString</key>
+			<string>&lt;nil&gt;</string>
+			<key>domainType</key>
+			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
+			<key>fileName</key>
+			<string>92FF3BEA-6E43-4125-9AE5-F147CBA1385A.xcactivitylog</string>
 			<key>hasPrimaryLog</key>
 			<true/>
 			<key>primaryObservable</key>
@@ -40,13 +124,13 @@
 			<key>signature</key>
 			<string>Cleaning project MAMEFrontend with scheme MAMEFrontend and configuration Release</string>
 			<key>timeStartedRecording</key>
-			<real>805290983.89439905</real>
+			<real>805307001.09655499</real>
 			<key>timeStoppedRecording</key>
-			<real>805290984.06672204</real>
+			<real>805307001.27264595</real>
 			<key>title</key>
 			<string>Cleaning project MAMEFrontend with scheme MAMEFrontend and configuration Release</string>
 			<key>uniqueIdentifier</key>
-			<string>E3393A53-EABB-4D85-9299-18DB6E1A5BA9</string>
+			<string>92FF3BEA-6E43-4125-9AE5-F147CBA1385A</string>
 		</dict>
 	</dict>
 </dict>

@@ -11,7 +11,7 @@ set -euo pipefail
 SCHEME="${SCHEME:-MAMEFrontend}"
 PROJECT="${PROJECT:-MAMEFrontend.xcodeproj}"
 CONFIG="Release"
-VERSION="${VERSION:-0.1.0}"
+VERSION="${VERSION:-0.2.0}"
 BUILD_DIR="build"
 
 echo "▶ Building $SCHEME ($CONFIG)…"

@@ -7,7 +7,7 @@ searchable list of the games you actually own — shown with real names, not
 short codes — and double-click to launch. Built with SwiftUI, arm64-native,
 no architecture-specific code required.
 
-Current status: **v0.1.0-alpha**.
+Current status: **v0.2.0-alpha**.
 
 ## Requirements
 - macOS 14+ (uses `@Observable`, `ContentUnavailableView`, `Table.primaryAction`)

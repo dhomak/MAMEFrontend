@@ -7,7 +7,7 @@
         "key": "MAME",
         "location": {
           "startingColumn": 34,
-          "startingLine": 26
+          "startingLine": 29
         }
       },
       {
@@ -15,7 +15,7 @@
         "key": "Search games",
         "location": {
           "startingColumn": 62,
-          "startingLine": 28
+          "startingLine": 31
         }
       },
       {
@@ -23,7 +23,7 @@
         "key": "Scanning library…",
         "location": {
           "startingColumn": 26,
-          "startingLine": 59
+          "startingLine": 70
         }
       },
       {
@@ -31,7 +31,7 @@
         "key": "Not configured",
         "location": {
           "startingColumn": 23,
-          "startingLine": 51
+          "startingLine": 62
         }
       },
       {
@@ -39,7 +39,7 @@
         "key": "Point the app at your MAME binary and ROM folder to get started.",
         "location": {
           "startingColumn": 22,
-          "startingLine": 53
+          "startingLine": 64
         }
       },
       {
@@ -47,7 +47,7 @@
         "key": "Open Settings",
         "location": {
           "startingColumn": 24,
-          "startingLine": 55
+          "startingLine": 66
         }
       },
       {
@@ -55,7 +55,7 @@
         "key": "Something went wrong",
         "location": {
           "startingColumn": 23,
-          "startingLine": 63
+          "startingLine": 74
         }
       },
       {
@@ -63,7 +63,7 @@
         "key": "Retry",
         "location": {
           "startingColumn": 24,
-          "startingLine": 67
+          "startingLine": 78
         }
       },
       {
@@ -71,7 +71,7 @@
         "key": "No games found",
         "location": {
           "startingColumn": 23,
-          "startingLine": 71
+          "startingLine": 82
         }
       },
       {
@@ -79,7 +79,7 @@
         "key": "No ROM archives matched machines this MAME build recognizes in %@.",
         "location": {
           "startingColumn": 22,
-          "startingLine": 73
+          "startingLine": 84
         }
       },
       {
@@ -87,7 +87,7 @@
         "key": "",
         "location": {
           "startingColumn": 25,
-          "startingLine": 82
+          "startingLine": 93
         }
       },
       {
@@ -95,7 +95,15 @@
         "key": "Game",
         "location": {
           "startingColumn": 25,
-          "startingLine": 94
+          "startingLine": 105
+        }
+      },
+      {
+        "comment": "",
+        "key": "Genre",
+        "location": {
+          "startingColumn": 25,
+          "startingLine": 117
         }
       },
       {
@@ -103,7 +111,7 @@
         "key": "Short name",
         "location": {
           "startingColumn": 25,
-          "startingLine": 106
+          "startingLine": 123
         }
       },
       {
@@ -111,7 +119,7 @@
         "key": "Year",
         "location": {
           "startingColumn": 25,
-          "startingLine": 113
+          "startingLine": 130
         }
       },
       {
@@ -119,7 +127,7 @@
         "key": "Last played",
         "location": {
           "startingColumn": 25,
-          "startingLine": 120
+          "startingLine": 137
         }
       },
       {
@@ -127,7 +135,7 @@
         "key": "Remove from favorites",
         "location": {
           "startingColumn": 48,
-          "startingLine": 90
+          "startingLine": 101
         }
       },
       {
@@ -135,7 +143,7 @@
         "key": "Add to favorites",
         "location": {
           "startingColumn": 74,
-          "startingLine": 90
+          "startingLine": 101
         }
       },
       {
@@ -143,7 +151,7 @@
         "key": "Owned on disk but not recognized by this MAME build.",
         "location": {
           "startingColumn": 35,
-          "startingLine": 101
+          "startingLine": 112
         }
       },
       {
@@ -151,7 +159,7 @@
         "key": "clone",
         "location": {
           "startingColumn": 14,
-          "startingLine": 166
+          "startingLine": 184
         }
       },
       {
@@ -159,7 +167,7 @@
         "key": "—",
         "location": {
           "startingColumn": 26,
-          "startingLine": 125
+          "startingLine": 142
         }
       },
       {
@@ -167,7 +175,7 @@
         "key": "Play %@",
         "location": {
           "startingColumn": 24,
-          "startingLine": 132
+          "startingLine": 149
         }
       },
       {
@@ -175,7 +183,7 @@
         "key": "Remove from Favorites",
         "location": {
           "startingColumn": 49,
-          "startingLine": 134
+          "startingLine": 151
         }
       },
       {
@@ -183,7 +191,7 @@
         "key": "Add to Favorites",
         "location": {
           "startingColumn": 75,
-          "startingLine": 134
+          "startingLine": 151
         }
       },
       {
@@ -191,7 +199,7 @@
         "key": "No favorites yet",
         "location": {
           "startingColumn": 41,
-          "startingLine": 147
+          "startingLine": 164
         }
       },
       {
@@ -199,7 +207,7 @@
         "key": "No matches",
         "location": {
           "startingColumn": 62,
-          "startingLine": 147
+          "startingLine": 164
         }
       },
       {
@@ -207,7 +215,7 @@
         "key": "Star a game to add it here.",
         "location": {
           "startingColumn": 28,
-          "startingLine": 151
+          "startingLine": 168
         }
       },
       {
@@ -215,7 +223,7 @@
         "key": "Nothing matches your current filters.",
         "location": {
           "startingColumn": 28,
-          "startingLine": 152
+          "startingLine": 169
         }
       },
       {
@@ -223,15 +231,15 @@
         "key": "Show all games",
         "location": {
           "startingColumn": 28,
-          "startingLine": 154
+          "startingLine": 171
         }
       },
       {
         "comment": "",
-        "key": "Select a game to see its history.",
+        "key": "Select a game to see its details.",
         "location": {
           "startingColumn": 58,
-          "startingLine": 222
+          "startingLine": 220
         }
       },
       {
@@ -239,47 +247,23 @@
         "key": "No selection",
         "location": {
           "startingColumn": 40,
-          "startingLine": 220
+          "startingLine": 218
         }
       },
       {
         "comment": "",
-        "key": "No history file",
+        "key": "Set a history file in Settings to show history and trivia.",
         "location": {
-          "startingColumn": 27,
-          "startingLine": 181
+          "startingColumn": 18,
+          "startingLine": 257
         }
       },
       {
         "comment": "",
-        "key": "Choose a history.xml or history.dat in Settings to show game history and trivia.",
+        "key": "No history entry for %@.",
         "location": {
-          "startingColumn": 26,
-          "startingLine": 183
-        }
-      },
-      {
-        "comment": "",
-        "key": "Open Settings",
-        "location": {
-          "startingColumn": 28,
-          "startingLine": 185
-        }
-      },
-      {
-        "comment": "",
-        "key": "Couldn't load history",
-        "location": {
-          "startingColumn": 27,
-          "startingLine": 189
-        }
-      },
-      {
-        "comment": "",
-        "key": "No history",
-        "location": {
-          "startingColumn": 35,
-          "startingLine": 210
+          "startingColumn": 18,
+          "startingLine": 263
         }
       },
       {
@@ -287,7 +271,23 @@
         "key": "clone of %@",
         "location": {
           "startingColumn": 26,
-          "startingLine": 239
+          "startingLine": 237
+        }
+      },
+      {
+        "comment": "",
+        "key": "Genre",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 287
+        }
+      },
+      {
+        "comment": "",
+        "key": "Filter by genre",
+        "location": {
+          "startingColumn": 23,
+          "startingLine": 294
         }
       },
       {
@@ -295,7 +295,7 @@
         "key": "Show only favorites",
         "location": {
           "startingColumn": 19,
-          "startingLine": 268
+          "startingLine": 301
         }
       },
       {
@@ -303,15 +303,15 @@
         "key": "Hide clone machines",
         "location": {
           "startingColumn": 19,
-          "startingLine": 274
+          "startingLine": 307
         }
       },
       {
         "comment": "",
-        "key": "Show history & trivia",
+        "key": "Show artwork, history & trivia",
         "location": {
           "startingColumn": 19,
-          "startingLine": 283
+          "startingLine": 316
         }
       },
       {
@@ -319,7 +319,7 @@
         "key": "Play",
         "location": {
           "startingColumn": 23,
-          "startingLine": 255
+          "startingLine": 277
         }
       },
       {
@@ -327,7 +327,15 @@
         "key": "Reload",
         "location": {
           "startingColumn": 23,
-          "startingLine": 260
+          "startingLine": 282
+        }
+      },
+      {
+        "comment": "",
+        "key": "All genres",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 288
         }
       },
       {
@@ -335,7 +343,7 @@
         "key": "Favorites only",
         "location": {
           "startingColumn": 23,
-          "startingLine": 265
+          "startingLine": 298
         }
       },
       {
@@ -343,7 +351,7 @@
         "key": "Hide clones",
         "location": {
           "startingColumn": 23,
-          "startingLine": 271
+          "startingLine": 304
         }
       },
       {
@@ -351,15 +359,15 @@
         "key": "Settings",
         "location": {
           "startingColumn": 23,
-          "startingLine": 277
+          "startingLine": 310
         }
       },
       {
         "comment": "",
-        "key": "History",
+        "key": "Details",
         "location": {
           "startingColumn": 23,
-          "startingLine": 281
+          "startingLine": 314
         }
       },
       {
@@ -367,7 +375,7 @@
         "key": "Settings",
         "location": {
           "startingColumn": 18,
-          "startingLine": 320
+          "startingLine": 357
         }
       },
       {
@@ -375,7 +383,7 @@
         "key": "Cancel",
         "location": {
           "startingColumn": 24,
-          "startingLine": 331
+          "startingLine": 372
         }
       },
       {
@@ -383,7 +391,7 @@
         "key": "Save",
         "location": {
           "startingColumn": 24,
-          "startingLine": 332
+          "startingLine": 373
         }
       },
       {
@@ -391,7 +399,7 @@
         "key": "Choose…",
         "location": {
           "startingColumn": 24,
-          "startingLine": 349
+          "startingLine": 390
         }
       }
     ]

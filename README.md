@@ -1,5 +1,7 @@
 # MAMEFrontend
 
+![MAMEFrontend screenshot](.github/images/screenshot.png)
+
 A minimal native macOS launcher for MAME. Scan your rompath, browse a
 searchable list of the games you actually own — shown with real names, not
 short codes — and double-click to launch. Built with SwiftUI, arm64-native,

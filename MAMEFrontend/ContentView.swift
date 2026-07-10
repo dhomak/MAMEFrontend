@@ -1,29 +1,45 @@
 import SwiftUI
 import AppKit
+import Combine
 
 struct ContentView: View {
     @State private var model = LibraryModel()
 
+    // Config
     @AppStorage("mameBinaryPath") private var mameBinaryPath = ""
     @AppStorage("romPath") private var romPath = ""
     @AppStorage("historyPath") private var historyPath = ""
     @AppStorage("catverPath") private var catverPath = ""
     @AppStorage("artworkPath") private var artworkPath = ""
 
+    // Persisted UI state
+    @AppStorage("showInspector") private var showInspector = true
+    @AppStorage("lastSelectionID") private var lastSelectionID = ""
+    @AppStorage("sortField") private var sortField = "title"
+    @AppStorage("sortAscending") private var sortAscending = true
+    @AppStorage("columnsData") private var columnsData = ""
+
     @State private var selection: Game.ID?
     @State private var showingSettings = false
-    @State private var showInspector = true
-    @State private var sortOrder: [KeyPathComparator<Game>] = [KeyPathComparator(\.sortTitle)]
     @State private var artwork: NSImage?
-
-    private var sortedGames: [Game] { model.filteredGames.sorted(using: sortOrder) }
+    @State private var searchTask: Task<Void, Never>?
+    @State private var columnCustomization = TableColumnCustomization<Game>()
+    @State private var window: NSWindow?
 
     private var selectedGame: Game? {
         guard let id = selection else { return nil }
-        return model.games.first { $0.id == id }
+        return model.game(id: id)
+    }
+
+    private var anyFilterActive: Bool {
+        model.showFavoritesOnly || model.hideClones || model.hideNonWorking || model.hideNonGames
     }
 
     var body: some View {
+        withChangeHandlers
+    }
+
+    private var presentedView: some View {
         NavigationStack {
             content
                 .navigationTitle("MAME")
@@ -31,6 +47,10 @@ struct ContentView: View {
                 .searchable(text: $model.searchText, prompt: "Search games")
                 .inspector(isPresented: $showInspector) { detailPanel }
         }
+        .background(WindowAccessor { win in
+            win.setFrameAutosaveName("MAMEMainWindow")
+            window = win
+        })
         .sheet(isPresented: $showingSettings) {
             SettingsView(mameBinaryPath: $mameBinaryPath,
                          romPath: $romPath,
@@ -40,17 +60,56 @@ struct ContentView: View {
                 syncAndReload()
             }
         }
-        .task {
-            syncConfig()
-            if model.isConfigured { await model.reload() }
-            await model.loadHistory()
-        }
-        .task(id: [selection ?? "", artworkPath]) {
-            artwork = nil
-            guard let game = selectedGame else { return }
-            let data = await model.loadArtwork(for: game)
-            if let data { artwork = NSImage(data: data) }
-        }
+    }
+
+    private var withCommands: some View {
+        presentedView
+            .onReceive(NotificationCenter.default.publisher(for: .openMAMESettings)) { _ in showingSettings = true }
+            .onReceive(NotificationCenter.default.publisher(for: .reloadLibrary)) { _ in syncAndReload() }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleInspector)) { _ in showInspector.toggle() }
+            .onReceive(NotificationCenter.default.publisher(for: .clearFilters)) { _ in model.clearFilters() }
+            .onReceive(NotificationCenter.default.publisher(for: .focusSearch)) { _ in focusSearchField() }
+    }
+
+    private var withTasks: some View {
+        withCommands
+            .task {
+                decodeColumns()
+                syncConfig()
+                if model.isConfigured { await model.reload() }
+                restoreSelection()
+                await model.loadHistory()
+            }
+            .task(id: [selection ?? "", artworkPath]) {
+                artwork = nil
+                guard let game = selectedGame else { return }
+                let data = await model.loadArtwork(for: game)
+                if let data { artwork = NSImage(data: data) }
+            }
+    }
+
+    private var withFilterHandlers: some View {
+        withTasks
+            .onChange(of: model.searchText) { _, newValue in
+                searchTask?.cancel()
+                searchTask = Task {
+                    try? await Task.sleep(for: .milliseconds(180))
+                    if Task.isCancelled { return }
+                    model.setSearch(newValue)
+                }
+            }
+            .onChange(of: model.showFavoritesOnly) { model.filtersChanged() }
+            .onChange(of: model.hideClones) { model.filtersChanged() }
+            .onChange(of: model.hideNonWorking) { model.filtersChanged() }
+            .onChange(of: model.hideNonGames) { model.filtersChanged() }
+            .onChange(of: model.genreFilter) { model.filtersChanged() }
+    }
+
+    private var withChangeHandlers: some View {
+        withFilterHandlers
+            .onChange(of: model.sortOrder) { model.recompute(); persistSort() }
+            .onChange(of: selection) { lastSelectionID = selection ?? "" }
+            .onChange(of: columnCustomization) { encodeColumns() }
     }
 
     // MARK: - Content states
@@ -89,7 +148,8 @@ struct ContentView: View {
     }
 
     private var gameTable: some View {
-        Table(sortedGames, selection: $selection, sortOrder: $sortOrder) {
+        Table(model.displayGames, selection: $selection, sortOrder: $model.sortOrder,
+              columnCustomization: $columnCustomization) {
             TableColumn("") { game in
                 Button {
                     model.toggleFavorite(game)
@@ -104,6 +164,7 @@ struct ContentView: View {
 
             TableColumn("Game", value: \.sortTitle) { game in
                 HStack(spacing: 6) {
+                    statusDot(game.status)
                     Text(game.description)
                     if game.isClone { cloneBadge }
                     if game.isUnknown {
@@ -113,12 +174,21 @@ struct ContentView: View {
                     }
                 }
             }
+            .customizationID("game")
 
             TableColumn("Genre", value: \.genre) { game in
                 Text(game.genre.isEmpty ? "—" : game.genre)
                     .foregroundStyle(game.genre.isEmpty ? .tertiary : .secondary)
             }
             .width(min: 120, ideal: 180)
+            .customizationID("genre")
+
+            TableColumn("Manufacturer", value: \.manufacturer) { game in
+                Text(game.manufacturer.isEmpty ? "—" : game.manufacturer)
+                    .foregroundStyle(game.manufacturer.isEmpty ? .tertiary : .secondary)
+            }
+            .width(min: 100, ideal: 150)
+            .customizationID("manufacturer")
 
             TableColumn("Short name", value: \.shortName) { game in
                 Text(game.shortName)
@@ -126,6 +196,7 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
             .width(min: 90, ideal: 130)
+            .customizationID("shortName")
 
             TableColumn("Year", value: \.year) { game in
                 Text(game.hasYear ? String(game.year) : "—")
@@ -133,6 +204,7 @@ struct ContentView: View {
                     .foregroundStyle(game.hasYear ? .secondary : .tertiary)
             }
             .width(min: 50, ideal: 60)
+            .customizationID("year")
 
             TableColumn("Last played", value: \.lastPlayed) { game in
                 if game.hasBeenPlayed {
@@ -143,9 +215,10 @@ struct ContentView: View {
                 }
             }
             .width(min: 90, ideal: 120)
+            .customizationID("lastPlayed")
         }
         .contextMenu(forSelectionType: Game.ID.self) { ids in
-            if let id = ids.first, let game = game(for: id) {
+            if let id = ids.first, let game = model.game(id: id) {
                 Button("Play \(game.description)") { model.launch(game) }
                 Divider()
                 Button(model.isFavorite(game) ? "Remove from Favorites" : "Add to Favorites") {
@@ -153,12 +226,20 @@ struct ContentView: View {
                 }
             }
         } primaryAction: { ids in
-            if let id = ids.first, let game = game(for: id) {
+            if let id = ids.first, let game = model.game(id: id) {
                 model.launch(game)
             }
         }
+        .onKeyPress(.return) {
+            if let game = selectedGame { model.launch(game); return .handled }
+            return .ignored
+        }
+        .onKeyPress(.space) {
+            if let game = selectedGame { model.toggleFavorite(game); return .handled }
+            return .ignored
+        }
         .overlay {
-            if model.filteredGames.isEmpty {
+            if model.displayGames.isEmpty {
                 let noFavorites = model.showFavoritesOnly && model.favorites.isEmpty
                 ContentUnavailableView {
                     Label(noFavorites ? "No favorites yet" : "No matches",
@@ -168,13 +249,8 @@ struct ContentView: View {
                          ? "Star a game to add it here."
                          : "Nothing matches your current filters.")
                 } actions: {
-                    Button("Show all games") {
-                        model.showFavoritesOnly = false
-                        model.hideClones = false
-                        model.genreFilter = nil
-                        model.searchText = ""
-                    }
-                    .buttonStyle(.borderedProminent)
+                    Button("Show all games") { model.clearFilters() }
+                        .buttonStyle(.borderedProminent)
                 }
             }
         }
@@ -189,7 +265,21 @@ struct ContentView: View {
             .foregroundStyle(.secondary)
     }
 
-    // MARK: - Detail inspector (artwork + history)
+    @ViewBuilder
+    private func statusDot(_ status: String) -> some View {
+        switch status {
+        case "good":        dot(.green, "Working")
+        case "imperfect":   dot(.yellow, "Working, with imperfections")
+        case "preliminary": dot(.red, "Not working (preliminary)")
+        default:            EmptyView()
+        }
+    }
+
+    private func dot(_ color: Color, _ helpText: String) -> some View {
+        Circle().fill(color).frame(width: 7, height: 7).help(helpText)
+    }
+
+    // MARK: - Detail inspector
 
     @ViewBuilder
     private var detailPanel: some View {
@@ -272,7 +362,7 @@ struct ContentView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup {
             Button {
-                if let id = selection, let game = game(for: id) { model.launch(game) }
+                if let game = selectedGame { model.launch(game) }
             } label: {
                 Label("Play", systemImage: "play.fill")
             }
@@ -294,17 +384,17 @@ struct ContentView: View {
                 .help("Filter by genre")
             }
 
-            Toggle(isOn: $model.showFavoritesOnly) {
-                Label("Favorites only", systemImage: model.showFavoritesOnly ? "star.fill" : "star")
+            Menu {
+                Toggle("Favorites only", isOn: $model.showFavoritesOnly)
+                Toggle("Hide clones", isOn: $model.hideClones)
+                Toggle("Hide non-working", isOn: $model.hideNonWorking)
+                Toggle("Hide non-games", isOn: $model.hideNonGames)
+            } label: {
+                Label("Filter", systemImage: anyFilterActive
+                      ? "line.3.horizontal.decrease.circle.fill"
+                      : "line.3.horizontal.decrease.circle")
             }
-            .toggleStyle(.button)
-            .help("Show only favorites")
-
-            Toggle(isOn: $model.hideClones) {
-                Label("Hide clones", systemImage: "square.on.square.dashed")
-            }
-            .toggleStyle(.button)
-            .help("Hide clone machines")
+            .help("Filters")
 
             Button { showingSettings = true } label: {
                 Label("Settings", systemImage: "gearshape")
@@ -317,10 +407,71 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Helpers
+    // MARK: - Persistence helpers
 
-    private func game(for id: Game.ID) -> Game? {
-        model.filteredGames.first { $0.id == id } ?? model.games.first { $0.id == id }
+    private func makeSortOrder(field: String, ascending: Bool) -> [KeyPathComparator<Game>] {
+        let order: SortOrder = ascending ? .forward : .reverse
+        switch field {
+        case "genre":        return [KeyPathComparator(\Game.genre, order: order)]
+        case "manufacturer": return [KeyPathComparator(\Game.manufacturer, order: order)]
+        case "shortName":    return [KeyPathComparator(\Game.shortName, order: order)]
+        case "year":         return [KeyPathComparator(\Game.year, order: order)]
+        case "lastPlayed":   return [KeyPathComparator(\Game.lastPlayed, order: order)]
+        default:             return [KeyPathComparator(\Game.sortTitle, order: order)]
+        }
+    }
+
+    private func persistSort() {
+        guard let comparator = model.sortOrder.first else { return }
+        sortAscending = (comparator.order == .forward)
+        let kp: AnyKeyPath = comparator.keyPath
+        if kp == \Game.genre { sortField = "genre" }
+        else if kp == \Game.manufacturer { sortField = "manufacturer" }
+        else if kp == \Game.shortName { sortField = "shortName" }
+        else if kp == \Game.year { sortField = "year" }
+        else if kp == \Game.lastPlayed { sortField = "lastPlayed" }
+        else { sortField = "title" }
+    }
+
+    private func restoreSelection() {
+        guard selection == nil, !lastSelectionID.isEmpty,
+              model.game(id: lastSelectionID) != nil else { return }
+        selection = lastSelectionID
+    }
+
+    private func decodeColumns() {
+        guard !columnsData.isEmpty, let data = columnsData.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(TableColumnCustomization<Game>.self, from: data)
+        else { return }
+        columnCustomization = decoded
+    }
+
+    private func encodeColumns() {
+        if let data = try? JSONEncoder().encode(columnCustomization) {
+            columnsData = String(decoding: data, as: UTF8.self)
+        }
+    }
+
+    private func focusSearchField() {
+        guard let window else { return }
+        // Prefer the toolbar's search item if present.
+        if let item = window.toolbar?.items.compactMap({ $0 as? NSSearchToolbarItem }).first {
+            window.makeFirstResponder(item.searchField)
+            return
+        }
+        // Fallback: find the first NSSearchField anywhere in the window.
+        if let field = firstSearchField(in: window.contentView?.superview ?? window.contentView) {
+            window.makeFirstResponder(field)
+        }
+    }
+
+    private func firstSearchField(in view: NSView?) -> NSView? {
+        guard let view else { return nil }
+        if view is NSSearchField { return view }
+        for sub in view.subviews {
+            if let found = firstSearchField(in: sub) { return found }
+        }
+        return nil
     }
 
     private func syncConfig() {
@@ -329,15 +480,31 @@ struct ContentView: View {
         model.historyPath = historyPath
         model.catverPath = catverPath
         model.artworkPath = artworkPath
+        model.sortOrder = makeSortOrder(field: sortField, ascending: sortAscending)
     }
 
     private func syncAndReload() {
         syncConfig()
         Task {
             await model.reload()
+            restoreSelection()
             await model.loadHistory()
         }
     }
+}
+
+// MARK: - Window frame persistence
+
+/// Reaches the hosting NSWindow to set a frame autosave name, so window size and
+/// position persist across launches.
+struct WindowAccessor: NSViewRepresentable {
+    let onWindow: (NSWindow) -> Void
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { if let window = view.window { onWindow(window) } }
+        return view
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
 // MARK: - Settings

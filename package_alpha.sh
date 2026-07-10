@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 #
-# Build, ad-hoc sign, and package MAMEFrontend as an alpha zip.
+# Build, ad-hoc sign, and package MAMEFrontend as a zip.
 # Run on macOS with Xcode installed, from the project root.
 #
 #   ./package_alpha.sh
-#   VERSION=0.1.1 SCHEME=MAMEFrontend ./package_alpha.sh
+#   VERSION=0.3.1 SCHEME=MAMEFrontend ./package_alpha.sh
 #
 set -euo pipefail
 
 SCHEME="${SCHEME:-MAMEFrontend}"
 PROJECT="${PROJECT:-MAMEFrontend.xcodeproj}"
 CONFIG="Release"
-VERSION="${VERSION:-0.2.0}"
+VERSION="${VERSION:-0.3.0}"
 BUILD_DIR="build"
 
 echo "▶ Building $SCHEME ($CONFIG)…"
@@ -25,7 +25,7 @@ echo "▶ Ad-hoc signing…"
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep --strict "$APP" && echo "  signature ok"
 
-OUT="$SCHEME-$VERSION-alpha.zip"
+OUT="$SCHEME-$VERSION.zip"
 echo "▶ Packaging → $OUT"
 ditto -c -k --keepParent "$APP" "$OUT"
 

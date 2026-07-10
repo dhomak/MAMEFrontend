@@ -1,5 +1,48 @@
 {
   "source": "/Users/aalien/sandbox/mameNative/MAMEFrontend/MAMEFrontend/MAMEFrontendApp.swift",
-  "tables": {},
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Settings…",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 14
+        }
+      },
+      {
+        "comment": "",
+        "key": "Reload Library",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 19
+        }
+      },
+      {
+        "comment": "",
+        "key": "Find",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 24
+        }
+      },
+      {
+        "comment": "",
+        "key": "Toggle Details Inspector",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 29
+        }
+      },
+      {
+        "comment": "",
+        "key": "Clear Filters",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 31
+        }
+      }
+    ]
+  },
   "version": 1
 }

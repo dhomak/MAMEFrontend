@@ -389,10 +389,10 @@ SWIFT_CLASS("_TtC12MAMEFrontend16HistoryXMLParser")
 - (nonnull instancetype)init OBJC_DESIGNATED_INITIALIZER;
 @end
 
-/// Pulls <code><year></code> out of each <code><machine></code> (or legacy <code><game></code>) in <code>-listxml</code>
-/// output without building a DOM — constant memory regardless of dump size.
-SWIFT_CLASS("_TtC12MAMEFrontend17MachineYearParser")
-@interface MachineYearParser : NSObject <NSXMLParserDelegate>
+/// Pulls <code><year></code>, <code><manufacturer></code>, and the <code><driver status></code> attribute out of
+/// each <code><machine></code> (or legacy <code><game></code>) in <code>-listxml</code> — SAX, constant memory.
+SWIFT_CLASS("_TtC12MAMEFrontend17MachineMetaParser")
+@interface MachineMetaParser : NSObject <NSXMLParserDelegate>
 - (void)parser:(NSXMLParser * _Nonnull)parser didStartElement:(NSString * _Nonnull)elementName namespaceURI:(NSString * _Nullable)namespaceURI qualifiedName:(NSString * _Nullable)qName attributes:(NSDictionary<NSString *, NSString *> * _Nonnull)attributeDict;
 - (void)parser:(NSXMLParser * _Nonnull)parser foundCharacters:(NSString * _Nonnull)string;
 - (void)parser:(NSXMLParser * _Nonnull)parser didEndElement:(NSString * _Nonnull)elementName namespaceURI:(NSString * _Nullable)namespaceURI qualifiedName:(NSString * _Nullable)qName;

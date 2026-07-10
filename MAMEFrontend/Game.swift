@@ -2,43 +2,28 @@ import Foundation
 
 /// A single MAME machine (arcade game, console/computer driver, etc.).
 struct Game: Identifiable, Hashable {
-    /// MAME short name, e.g. "mslug". This is what you pass to the binary.
     let shortName: String
-
-    /// Human-readable description, e.g. "Metal Slug - Super Vehicle-001".
     let description: String
-
-    /// True when a matching ROM archive exists on disk but this MAME build
-    /// didn't list the short name in `-listfull`.
     let isUnknown: Bool
-
-    /// Parent short name if this machine is a clone (from `-listclones`);
-    /// nil for parents and standalone machines.
     let parent: String?
 
-    /// Most recent launch time. `.distantPast` means "never played".
     var lastPlayed: Date
-
-    /// Release year from `-listxml`. 0 means unknown / not fetched yet.
     var year: Int
+    let genre: String
+    var manufacturer: String
+    var status: String        // driver status: good / imperfect / preliminary / "" (unknown)
+    var isNonGame: Bool       // BIOS / device / mechanical / computer-console system
 
-    /// Genre from `catver.ini`, e.g. "Shooter / Flying Vertical". Empty = none.
-    var genre: String
+    // Precomputed once at construction so filtering/sorting never re-allocates.
+    let sortTitle: String   // lowercased description (sort key)
+    let searchKey: String   // lowercased "description shortName" (search haystack)
+    let category: String    // top-level genre category (filter key)
 
     var isClone: Bool { parent != nil }
     var hasBeenPlayed: Bool { lastPlayed != .distantPast }
     var hasYear: Bool { year > 0 }
-
-    /// Case-folded title used as the sort key for the Game column.
-    var sortTitle: String { description.lowercased() }
-
-    /// Top-level genre category (the part before "/"), used for filtering.
-    /// Empty when no genre is known.
-    var category: String {
-        guard !genre.isEmpty else { return "" }
-        return genre.split(separator: "/").first
-            .map { $0.trimmingCharacters(in: .whitespaces) } ?? genre
-    }
+    /// Unknown status counts as working so nothing hides before metadata loads.
+    var isWorking: Bool { status != "preliminary" }
 
     var id: String { shortName }
 
@@ -48,7 +33,10 @@ struct Game: Identifiable, Hashable {
          parent: String? = nil,
          lastPlayed: Date = .distantPast,
          year: Int = 0,
-         genre: String = "") {
+         genre: String = "",
+         manufacturer: String = "",
+         status: String = "",
+         isNonGame: Bool = false) {
         self.shortName = shortName
         self.description = description
         self.isUnknown = isUnknown
@@ -56,5 +44,17 @@ struct Game: Identifiable, Hashable {
         self.lastPlayed = lastPlayed
         self.year = year
         self.genre = genre
+        self.manufacturer = manufacturer
+        self.status = status
+        self.isNonGame = isNonGame
+
+        self.sortTitle = description.lowercased()
+        self.searchKey = (description + " " + shortName).lowercased()
+        if genre.isEmpty {
+            self.category = ""
+        } else {
+            self.category = genre.split(separator: "/").first
+                .map { $0.trimmingCharacters(in: .whitespaces) } ?? genre
+        }
     }
 }

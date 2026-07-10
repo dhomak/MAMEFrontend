@@ -1,4 +1,4 @@
-# MAMEFrontend — alpha release (v0.1.0)
+# MAMEFrontend — release (v0.3.0)
 
 Everything here runs on your Mac (Xcode can't build from the container). Steps in
 order; the Gatekeeper part (step 4) is the one that actually bites when handing
@@ -16,7 +16,7 @@ it sits right next to native icons rather than showing wood edges.
 
 ## 2. Identity & version
 Target → **General**:
-- Version (`CFBundleShortVersionString`): `0.1.0`
+- Version (`CFBundleShortVersionString`): `0.3.0`
 - Build: `1`
 - Bundle Identifier: e.g. `com.aalien.MAMEFrontend`
 - Deployment target: **macOS 14.0**
@@ -36,7 +36,7 @@ xcodebuild -project MAMEFrontend.xcodeproj -scheme MAMEFrontend \
 Result: `build/Build/Products/Release/MAMEFrontend.app`.
 
 ## 4. Sign & get past Gatekeeper
-Alpha builds have no Developer ID, so other Macs will refuse them by default.
+This build has no Developer ID, so other Macs will refuse it by default.
 Ad-hoc sign so the bundle at least has a stable signature:
 
 ```
@@ -56,7 +56,7 @@ survive:
 
 ```
 ditto -c -k --keepParent build/Build/Products/Release/MAMEFrontend.app \
-  MAMEFrontend-0.1.0-alpha.zip
+  MAMEFrontend-0.3.0.zip
 ```
 
 Send the zip. Tester unzips, moves to `/Applications`, right-click → Open.

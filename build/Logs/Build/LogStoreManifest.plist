@@ -6,7 +6,7 @@
 	<integer>12</integer>
 	<key>logs</key>
 	<dict>
-		<key>02B208EF-E914-4F08-A5F2-4439330B091D</key>
+		<key>15CD6BE7-AED7-4D84-8054-FBB821B6416A</key>
 		<dict>
 			<key>className</key>
 			<string>IDECommandLineBuildLog</string>
@@ -15,7 +15,7 @@
 			<key>domainType</key>
 			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
 			<key>fileName</key>
-			<string>02B208EF-E914-4F08-A5F2-4439330B091D.xcactivitylog</string>
+			<string>15CD6BE7-AED7-4D84-8054-FBB821B6416A.xcactivitylog</string>
 			<key>hasPrimaryLog</key>
 			<true/>
 			<key>primaryObservable</key>
@@ -40,13 +40,13 @@
 			<key>signature</key>
 			<string>Building project MAMEFrontend with scheme MAMEFrontend and configuration Release</string>
 			<key>timeStartedRecording</key>
-			<real>805304148.76600099</real>
+			<real>805351134.38224196</real>
 			<key>timeStoppedRecording</key>
-			<real>805304156.83986199</real>
+			<real>805351139.70756304</real>
 			<key>title</key>
 			<string>Building project MAMEFrontend with scheme MAMEFrontend and configuration Release</string>
 			<key>uniqueIdentifier</key>
-			<string>02B208EF-E914-4F08-A5F2-4439330B091D</string>
+			<string>15CD6BE7-AED7-4D84-8054-FBB821B6416A</string>
 		</dict>
 		<key>7E1BF74C-87ED-400C-B1D1-D6D09BF909BA</key>
 		<dict>
@@ -90,7 +90,7 @@
 			<key>uniqueIdentifier</key>
 			<string>7E1BF74C-87ED-400C-B1D1-D6D09BF909BA</string>
 		</dict>
-		<key>92FF3BEA-6E43-4125-9AE5-F147CBA1385A</key>
+		<key>93CB6A97-FB76-4629-998E-0DA1BC8AC0F5</key>
 		<dict>
 			<key>className</key>
 			<string>IDECommandLineBuildLog</string>
@@ -99,7 +99,7 @@
 			<key>domainType</key>
 			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
 			<key>fileName</key>
-			<string>92FF3BEA-6E43-4125-9AE5-F147CBA1385A.xcactivitylog</string>
+			<string>93CB6A97-FB76-4629-998E-0DA1BC8AC0F5.xcactivitylog</string>
 			<key>hasPrimaryLog</key>
 			<true/>
 			<key>primaryObservable</key>
@@ -124,13 +124,13 @@
 			<key>signature</key>
 			<string>Cleaning project MAMEFrontend with scheme MAMEFrontend and configuration Release</string>
 			<key>timeStartedRecording</key>
-			<real>805307001.09655499</real>
+			<real>805351134.18033397</real>
 			<key>timeStoppedRecording</key>
-			<real>805307001.27264595</real>
+			<real>805351134.38097095</real>
 			<key>title</key>
 			<string>Cleaning project MAMEFrontend with scheme MAMEFrontend and configuration Release</string>
 			<key>uniqueIdentifier</key>
-			<string>92FF3BEA-6E43-4125-9AE5-F147CBA1385A</string>
+			<string>93CB6A97-FB76-4629-998E-0DA1BC8AC0F5</string>
 		</dict>
 	</dict>
 </dict>

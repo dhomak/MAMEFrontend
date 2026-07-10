@@ -11,7 +11,9 @@ final class LibraryModel {
     var artworkPath = ""
 
     // Catalog state
-    private(set) var games: [Game] = []
+    private(set) var games: [Game] = []            // full library
+    private(set) var displayGames: [Game] = []     // filtered + sorted (what the table shows)
+    private(set) var categories: [String] = []     // distinct genre categories (cached)
     private(set) var isLoading = false
     private(set) var errorMessage: String?
 
@@ -19,48 +21,75 @@ final class LibraryModel {
     private(set) var historyIndex: [String: String] = [:]
     private(set) var historyError: String?
 
-    // View filters
+    // View filters (mutated by the view; view calls recompute() on change)
     var searchText = ""
     var showFavoritesOnly = false
     var hideClones = false
-    var genreFilter: String?          // nil = all categories
+    var hideNonWorking = false
+    var hideNonGames = false
+    var genreFilter: String?
+    var sortOrder: [KeyPathComparator<Game>] = [KeyPathComparator(\.sortTitle)]
 
     // Persisted state
     private(set) var favorites: Set<String> = []
     private var lastPlayedByName: [String: Date] = [:]
-    private var yearCache: [String: Int] = [:]
-    private var zipEntryCache: [String: Set<String>] = [:]   // artwork zip path -> entry names
+    private var metaCache: [String: MachineMeta] = [:]
+    private var zipEntryCache: [String: Set<String>] = [:]
+
+    // Fast lookups / applied search
+    private var gamesByID: [String: Game] = [:]
+    private var appliedSearch = ""
 
     private let favoritesKey = "favorites"
     private let lastPlayedKey = "lastPlayed"
-    private let yearCacheKey = "yearCache"
+    private let yearCacheKey = "metaCacheV2"
 
-    init() {
-        loadUserData()
-    }
+    init() { loadUserData() }
 
     var isConfigured: Bool { !mameBinaryPath.isEmpty && !romPath.isEmpty }
     var historyConfigured: Bool { !historyPath.isEmpty }
     var artworkConfigured: Bool { !artworkPath.isEmpty }
 
-    /// Distinct top-level genre categories present in the library, sorted.
-    var categories: [String] {
-        Array(Set(games.map { $0.category })).filter { !$0.isEmpty }.sorted()
-    }
+    func game(id: String) -> Game? { gamesByID[id] }
 
-    var filteredGames: [Game] {
+    // MARK: - Display list
+
+    /// Rebuilds `displayGames` from the current filters + sort. Called only when
+    /// something actually changes — never per keystroke (search is debounced).
+    @MainActor
+    func recompute() {
         var result = games
         if showFavoritesOnly { result = result.filter { favorites.contains($0.shortName) } }
         if hideClones        { result = result.filter { !$0.isClone } }
+        if hideNonWorking    { result = result.filter { $0.isWorking } }
+        if hideNonGames      { result = result.filter { !$0.isNonGame } }
         if let category = genreFilter { result = result.filter { $0.category == category } }
-        if !searchText.isEmpty {
-            let needle = searchText.lowercased()
-            result = result.filter {
-                $0.description.lowercased().contains(needle) ||
-                $0.shortName.lowercased().contains(needle)
-            }
+        if !appliedSearch.isEmpty {
+            let needle = appliedSearch.lowercased()
+            result = result.filter { $0.searchKey.contains(needle) }
         }
-        return result
+        result.sort(using: sortOrder)
+        displayGames = result
+    }
+
+    /// Applies a (debounced) search term.
+    @MainActor
+    func setSearch(_ text: String) {
+        appliedSearch = text
+        recompute()
+    }
+
+    @MainActor
+    func clearFilters() {
+        showFavoritesOnly = false
+        hideClones = false
+        hideNonWorking = false
+        hideNonGames = false
+        genreFilter = nil
+        searchText = ""
+        appliedSearch = ""
+        recompute()
+        persistFilters()
     }
 
     // MARK: - Loading
@@ -98,71 +127,94 @@ final class LibraryModel {
                 for clone in clonesByParent[name] ?? [] { shortNames.insert(clone) }
             }
 
-            var resolved: [Game] = shortNames.map { short in
+            let resolved: [Game] = shortNames.map { short in
                 let parent = cloneOf[short]
                 let played = lastPlayedByName[short] ?? .distantPast
-                let year = yearCache[short] ?? 0
+                let meta = metaCache[short]
                 let genre = genreIndex[short] ?? (parent.flatMap { genreIndex[$0] }) ?? ""
                 if let desc = nameMap[short] {
                     return Game(shortName: short, description: desc,
-                                parent: parent, lastPlayed: played, year: year, genre: genre)
+                                parent: parent, lastPlayed: played,
+                                year: meta?.year ?? 0, genre: genre,
+                                manufacturer: meta?.manufacturer ?? "", status: meta?.status ?? "",
+                                isNonGame: meta?.nonGame ?? false)
                 } else {
                     return Game(shortName: short, description: short, isUnknown: true,
-                                parent: parent, lastPlayed: played, year: year, genre: genre)
+                                parent: parent, lastPlayed: played,
+                                year: meta?.year ?? 0, genre: genre,
+                                manufacturer: meta?.manufacturer ?? "", status: meta?.status ?? "",
+                                isNonGame: meta?.nonGame ?? false)
                 }
             }
-            resolved.sort {
-                $0.description.localizedCaseInsensitiveCompare($1.description) == .orderedAscending
-            }
+
             games = resolved
+            gamesByID = Dictionary(resolved.map { ($0.shortName, $0) }, uniquingKeysWith: { a, _ in a })
+            categories = Array(Set(resolved.map { $0.category })).filter { !$0.isEmpty }.sorted()
+            recompute()
             isLoading = false
 
             let knownNames = resolved.filter { !$0.isUnknown }.map { $0.shortName }
-            let missing = knownNames.filter { yearCache[$0] == nil }
+            let missing = knownNames.filter { metaCache[$0] == nil }
             if !missing.isEmpty {
-                await enrichYears(for: missing, runner: runner)
+                await enrichMeta(for: missing, runner: runner)
             }
         } catch {
             errorMessage = error.localizedDescription
-            games = []
+            games = []; displayGames = []; gamesByID = [:]; categories = []
             isLoading = false
         }
     }
 
     @MainActor
-    private func enrichYears(for names: [String], runner: MAMERunner) async {
+    private func enrichMeta(for names: [String], runner: MAMERunner) async {
         let chunkSize = 300
         var index = 0
         while index < names.count {
             let chunk = Array(names[index..<min(index + chunkSize, names.count)])
             index += chunkSize
             do {
-                let fetched = try await runner.years(for: chunk)
+                let fetched = try await runner.meta(for: chunk)
                 guard !fetched.isEmpty else { continue }
-                yearCache.merge(fetched) { _, new in new }
-                games = games.map { game in
-                    if let y = fetched[game.shortName], y > 0, game.year != y {
-                        var updated = game
-                        updated.year = y
-                        return updated
-                    }
-                    return game
-                }
+                metaCache.merge(fetched) { _, new in new }
+                applyMeta(fetched)
             } catch {
                 // Non-fatal.
             }
         }
-        saveYearCache()
+        saveMetaCache()
+    }
+
+    /// Folds fetched metadata into games / displayGames / index in place.
+    @MainActor
+    private func applyMeta(_ fetched: [String: MachineMeta]) {
+        func updated(_ g: Game) -> Game {
+            guard let m = fetched[g.shortName] else { return g }
+            var n = g
+            if m.year > 0 { n.year = m.year }
+            if !m.manufacturer.isEmpty { n.manufacturer = m.manufacturer }
+            if !m.status.isEmpty { n.status = m.status }
+            n.isNonGame = m.nonGame
+            return n
+        }
+        games = games.map(updated)
+        displayGames = displayGames.map(updated)
+        for (name, m) in fetched {
+            if var g = gamesByID[name] {
+                if m.year > 0 { g.year = m.year }
+                if !m.manufacturer.isEmpty { g.manufacturer = m.manufacturer }
+                if !m.status.isEmpty { g.status = m.status }
+                g.isNonGame = m.nonGame
+                gamesByID[name] = g
+            }
+        }
+        // Newly-learned kinds/statuses may change a filtered view.
+        if hideNonWorking || hideNonGames { recompute() }
     }
 
     @MainActor
     func loadHistory() async {
         let path = historyPath
-        guard !path.isEmpty else {
-            historyIndex = [:]
-            historyError = nil
-            return
-        }
+        guard !path.isEmpty else { historyIndex = [:]; historyError = nil; return }
         do {
             let idx = try await Task.detached { try HistoryStore.index(fromFileAt: path) }.value
             historyIndex = idx
@@ -179,24 +231,20 @@ final class LibraryModel {
         return nil
     }
 
-    /// Loads artwork bytes for a game — extracted files first, then inside MAME
-    /// artwork zips — with a parent-set fallback for clones. Runs its work
-    /// off-main and caches each zip's entry list so misses don't re-spawn `unzip`.
+    // MARK: - Artwork
+
     @MainActor
     func loadArtwork(for game: Game) async -> Data? {
         guard artworkConfigured else { return nil }
         let base = artworkPath
         let names = [game.shortName] + (game.parent.map { [$0] } ?? [])
 
-        // 1) Extracted image files.
         if let data = await Task.detached(operation: {
             ArtworkStore.extractedFile(base: base, names: names)
         }).value {
             return data
         }
 
-        // 2) Per-type extras zips (progetto-SNAPS style): snap.zip etc. with
-        //    <shortname>.png entries.
         let baseURL = URL(fileURLWithPath: base)
         let fm = FileManager.default
         for zipName in ArtworkStore.zipNames {
@@ -217,8 +265,6 @@ final class LibraryModel {
             }
         }
 
-        // 3) Per-game artwork zips (MAME bezel/overlay packs): <shortname>.zip
-        //    containing a default.lay plus one or more images with arbitrary names.
         for name in names {
             let gameZip = baseURL.appendingPathComponent("\(name).zip")
             guard fm.fileExists(atPath: gameZip.path) else { continue }
@@ -253,9 +299,13 @@ final class LibraryModel {
             try runner.launch(shortName: game.shortName)
             let now = Date()
             lastPlayedByName[game.shortName] = now
-            if let idx = games.firstIndex(where: { $0.shortName == game.shortName }) {
-                games[idx].lastPlayed = now
+            if let i = games.firstIndex(where: { $0.shortName == game.shortName }) {
+                games[i].lastPlayed = now
             }
+            if let i = displayGames.firstIndex(where: { $0.shortName == game.shortName }) {
+                displayGames[i].lastPlayed = now
+            }
+            if var g = gamesByID[game.shortName] { g.lastPlayed = now; gamesByID[game.shortName] = g }
             saveUserData()
         } catch {
             errorMessage = error.localizedDescription
@@ -264,6 +314,7 @@ final class LibraryModel {
 
     func isFavorite(_ game: Game) -> Bool { favorites.contains(game.shortName) }
 
+    @MainActor
     func toggleFavorite(_ game: Game) {
         if favorites.contains(game.shortName) {
             favorites.remove(game.shortName)
@@ -271,6 +322,7 @@ final class LibraryModel {
             favorites.insert(game.shortName)
         }
         saveUserData()
+        if showFavoritesOnly { recompute() }   // membership affects the filtered view
     }
 
     // MARK: - Persistence
@@ -285,9 +337,31 @@ final class LibraryModel {
             lastPlayedByName = decoded
         }
         if let data = defaults.data(forKey: yearCacheKey),
-           let decoded = try? JSONDecoder().decode([String: Int].self, from: data) {
-            yearCache = decoded
+           let decoded = try? JSONDecoder().decode([String: MachineMeta].self, from: data) {
+            metaCache = decoded
         }
+        showFavoritesOnly = defaults.bool(forKey: "fFavorites")
+        hideClones = defaults.bool(forKey: "fHideClones")
+        hideNonWorking = defaults.bool(forKey: "fHideNonWorking")
+        hideNonGames = defaults.bool(forKey: "fHideNonGames")
+        let g = defaults.string(forKey: "fGenre") ?? ""
+        genreFilter = g.isEmpty ? nil : g
+    }
+
+    /// Recompute + persist filter state. Called from the view on filter changes.
+    @MainActor
+    func filtersChanged() {
+        recompute()
+        persistFilters()
+    }
+
+    private func persistFilters() {
+        let d = UserDefaults.standard
+        d.set(showFavoritesOnly, forKey: "fFavorites")
+        d.set(hideClones, forKey: "fHideClones")
+        d.set(hideNonWorking, forKey: "fHideNonWorking")
+        d.set(hideNonGames, forKey: "fHideNonGames")
+        d.set(genreFilter ?? "", forKey: "fGenre")
     }
 
     private func saveUserData() {
@@ -298,8 +372,8 @@ final class LibraryModel {
         }
     }
 
-    private func saveYearCache() {
-        if let data = try? JSONEncoder().encode(yearCache) {
+    private func saveMetaCache() {
+        if let data = try? JSONEncoder().encode(metaCache) {
             UserDefaults.standard.set(data, forKey: yearCacheKey)
         }
     }

@@ -52,18 +52,18 @@ struct MAMERunner {
     // MARK: - Year metadata (from -listxml, but scoped to specific machines)
 
     /// Runs `mame -listxml <name> <name> …` for a *bounded* batch of machine
-    /// names and SAX-parses only the `<year>` of each. The caller is expected to
-    /// chunk large sets and cache results — year is static per machine.
-    func years(for names: [String]) async throws -> [String: Int] {
+    /// names and SAX-parses year, manufacturer, and driver status of each. The
+    /// caller chunks large sets and caches results — this metadata is static.
+    func meta(for names: [String]) async throws -> [String: MachineMeta] {
         guard !names.isEmpty else { return [:] }
         try validateBinary()
         let (out, err, status) = try await runCapturingRaw(arguments: ["-listxml"] + names)
         guard status == 0 || !out.isEmpty else {
             throw MAMEError.nonZeroExit(status, String(decoding: err, as: UTF8.self))
         }
-        let parser = MachineYearParser()
+        let parser = MachineMetaParser()
         parser.parse(out)
-        return parser.years
+        return parser.metas
     }
 
     // MARK: - Parsers
@@ -174,15 +174,30 @@ struct MAMERunner {
     }
 }
 
-// MARK: - SAX parser for machine years
+// MARK: - SAX parser for machine metadata
 
-/// Pulls `<year>` out of each `<machine>` (or legacy `<game>`) in `-listxml`
-/// output without building a DOM — constant memory regardless of dump size.
-final class MachineYearParser: NSObject, XMLParserDelegate {
-    private(set) var years: [String: Int] = [:]
+/// Static per-machine metadata pulled from `-listxml`.
+struct MachineMeta: Codable, Hashable {
+    var year: Int = 0
+    var manufacturer: String = ""
+    var status: String = ""      // driver status: good / imperfect / preliminary
+    var isBios: Bool = false
+    var isDevice: Bool = false
+    var isMechanical: Bool = false
+    var isSystem: Bool = false   // has a <softwarelist> => computer / console
+
+    /// Not an arcade game (BIOS, device, mechanical, or software-consuming system).
+    var nonGame: Bool { isBios || isDevice || isMechanical || isSystem }
+}
+
+/// Pulls `<year>`, `<manufacturer>`, and the `<driver status>` attribute out of
+/// each `<machine>` (or legacy `<game>`) in `-listxml` — SAX, constant memory.
+final class MachineMetaParser: NSObject, XMLParserDelegate {
+    private(set) var metas: [String: MachineMeta] = [:]
 
     private var currentMachine: String?
-    private var capturingYear = false
+    private var current = MachineMeta()
+    private var capturing: String?    // "year" | "manufacturer" | nil
     private var buffer = ""
 
     func parse(_ data: Data) {
@@ -199,16 +214,26 @@ final class MachineYearParser: NSObject, XMLParserDelegate {
         switch elementName {
         case "machine", "game":
             currentMachine = attributeDict["name"]
+            current = MachineMeta()
+            if attributeDict["isbios"] == "yes" { current.isBios = true }
+            if attributeDict["isdevice"] == "yes" { current.isDevice = true }
+            if attributeDict["runnable"] == "no" { current.isDevice = true }
+            if attributeDict["ismechanical"] == "yes" { current.isMechanical = true }
+        case "softwarelist":
+            current.isSystem = true
         case "year":
-            capturingYear = true
-            buffer = ""
+            capturing = "year"; buffer = ""
+        case "manufacturer":
+            capturing = "manufacturer"; buffer = ""
+        case "driver":
+            if let s = attributeDict["status"] { current.status = s }
         default:
             break
         }
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        if capturingYear { buffer += string }
+        if capturing != nil { buffer += string }
     }
 
     func parser(_ parser: XMLParser,
@@ -217,14 +242,16 @@ final class MachineYearParser: NSObject, XMLParserDelegate {
                 qualifiedName qName: String?) {
         switch elementName {
         case "year":
-            if let name = currentMachine {
-                // Strict: only clean 4-digit years (skip "19??", "198?", etc.).
-                if let y = Int(buffer.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                    years[name] = y
-                }
+            // Strict: only clean 4-digit years (skip "19??", "198?", etc.).
+            if let y = Int(buffer.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                current.year = y
             }
-            capturingYear = false
+            capturing = nil
+        case "manufacturer":
+            current.manufacturer = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
+            capturing = nil
         case "machine", "game":
+            if let name = currentMachine { metas[name] = current }
             currentMachine = nil
         default:
             break

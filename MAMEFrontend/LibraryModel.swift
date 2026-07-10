@@ -42,6 +42,8 @@ final class LibraryModel {
     // Persisted state
     private(set) var favorites: Set<String> = []
     private var lastPlayedByName: [String: Date] = [:]
+    private var playCountByName: [String: Int] = [:]
+    private var launchOptionsByName: [String: String] = [:]
     private var metaCache: [String: MachineMeta] = [:]
     private var zipEntryCache: [String: Set<String>] = [:]
 
@@ -145,6 +147,7 @@ final class LibraryModel {
             let resolved: [Game] = shortNames.map { short in
                 let parent = cloneOf[short]
                 let played = lastPlayedByName[short] ?? .distantPast
+                let plays = playCountByName[short] ?? 0
                 let meta = metaCache[short]
                 let genre = genreIndex[short] ?? (parent.flatMap { genreIndex[$0] }) ?? ""
                 let requiresDisk = meta?.requiresDisk ?? false
@@ -153,14 +156,14 @@ final class LibraryModel {
                     : false
                 if let desc = nameMap[short] {
                     return Game(shortName: short, description: desc,
-                                parent: parent, lastPlayed: played,
+                                parent: parent, lastPlayed: played, playCount: plays,
                                 year: meta?.year ?? 0, genre: genre,
                                 manufacturer: meta?.manufacturer ?? "", status: meta?.status ?? "",
                                 isNonGame: meta?.nonGame ?? false,
                                 requiresDisk: requiresDisk, diskPresent: diskPresent)
                 } else {
                     return Game(shortName: short, description: short, isUnknown: true,
-                                parent: parent, lastPlayed: played,
+                                parent: parent, lastPlayed: played, playCount: plays,
                                 year: meta?.year ?? 0, genre: genre,
                                 manufacturer: meta?.manufacturer ?? "", status: meta?.status ?? "",
                                 isNonGame: meta?.nonGame ?? false,
@@ -350,29 +353,48 @@ final class LibraryModel {
 
     // MARK: - Actions
 
+    func launchOption(for id: String) -> String { launchOptionsByName[id] ?? "" }
+
+    @MainActor
+    func setLaunchOption(_ value: String, for id: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { launchOptionsByName[id] = nil } else { launchOptionsByName[id] = trimmed }
+        UserDefaults.standard.set(launchOptionsByName, forKey: "launchOptions")
+    }
+
+    /// Writes play stats for one machine into the maps, the current rows, and the
+    /// lookup index, then persists.
+    @MainActor
+    private func applyPlayStats(_ shortName: String, lastPlayed: Date?, count: Int) {
+        lastPlayedByName[shortName] = lastPlayed
+        playCountByName[shortName] = count > 0 ? count : nil
+        let effectiveLast = lastPlayed ?? .distantPast
+        func apply(_ g: Game) -> Game { var n = g; n.lastPlayed = effectiveLast; n.playCount = count; return n }
+        if let i = games.firstIndex(where: { $0.shortName == shortName }) { games[i] = apply(games[i]) }
+        if let i = displayGames.firstIndex(where: { $0.shortName == shortName }) { displayGames[i] = apply(displayGames[i]) }
+        if let g = gamesByID[shortName] { gamesByID[shortName] = apply(g) }
+        saveUserData()
+    }
+
     @MainActor
     func launch(_ game: Game) {
-        // Record play time optimistically.
-        let now = Date()
-        lastPlayedByName[game.shortName] = now
-        if let i = games.firstIndex(where: { $0.shortName == game.shortName }) {
-            games[i].lastPlayed = now
-        }
-        if let i = displayGames.firstIndex(where: { $0.shortName == game.shortName }) {
-            displayGames[i].lastPlayed = now
-        }
-        if var g = gamesByID[game.shortName] { g.lastPlayed = now; gamesByID[game.shortName] = g }
-        saveUserData()
+        // Stamp optimistically for instant feedback; undo if the launch fails fast.
+        let prevLast = lastPlayedByName[game.shortName]
+        let prevCount = playCountByName[game.shortName] ?? 0
+        applyPlayStats(game.shortName, lastPlayed: Date(), count: prevCount + 1)
 
-        // Spawn and watch for a fast failure without blocking the UI.
         let runner = MAMERunner(binaryPath: mameBinaryPath, romPath: combinedRomPath)
+        let extra = MAMERunner.tokenize(launchOptionsByName[game.shortName] ?? "")
+        let shortName = game.shortName
         let title = game.description
         Task {
             do {
-                if let failure = try await runner.launchMonitored(shortName: game.shortName) {
+                if let failure = try await runner.launchMonitored(shortName: shortName, extraArgs: extra) {
+                    applyPlayStats(shortName, lastPlayed: prevLast, count: prevCount)   // undo
                     launchError = LaunchFailure(game: title, message: String(failure.prefix(800)))
                 }
             } catch {
+                applyPlayStats(shortName, lastPlayed: prevLast, count: prevCount)       // undo
                 launchError = LaunchFailure(game: title, message: error.localizedDescription)
             }
         }
@@ -402,6 +424,8 @@ final class LibraryModel {
            let decoded = try? JSONDecoder().decode([String: Date].self, from: data) {
             lastPlayedByName = decoded
         }
+        launchOptionsByName = defaults.dictionary(forKey: "launchOptions") as? [String: String] ?? [:]
+        playCountByName = defaults.dictionary(forKey: "playCounts") as? [String: Int] ?? [:]
         loadMetaCache()
         showFavoritesOnly = defaults.bool(forKey: "fFavorites")
         hideClones = defaults.bool(forKey: "fHideClones")
@@ -430,6 +454,7 @@ final class LibraryModel {
     private func saveUserData() {
         let defaults = UserDefaults.standard
         defaults.set(Array(favorites), forKey: favoritesKey)
+        defaults.set(playCountByName, forKey: "playCounts")
         if let data = try? JSONEncoder().encode(lastPlayedByName) {
             defaults.set(data, forKey: lastPlayedKey)
         }
@@ -447,8 +472,12 @@ final class LibraryModel {
     }
 
     private func loadMetaCache() {
-        // Clear any oversized value a previous build tried to write to UserDefaults.
-        UserDefaults.standard.removeObject(forKey: yearCacheKey)
+        // Purge metadata blobs older builds wrote to UserDefaults. Any one of
+        // these can exceed the 4 MB domain limit and wedge *all* preference
+        // writes (favorites, paths, everything), so remove them unconditionally.
+        for key in ["yearCache", "metaCache", "metaCacheV2", "metaCacheV3"] {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
         guard let url = metaCacheURL, let data = try? Data(contentsOf: url),
               let decoded = try? JSONDecoder().decode([String: MachineMeta].self, from: data)
         else { return }

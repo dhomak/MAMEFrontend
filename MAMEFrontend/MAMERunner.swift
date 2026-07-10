@@ -109,11 +109,11 @@ struct MAMERunner {
     /// *failed* launch exits quickly with a non-zero code — in that case the
     /// captured stderr (MAME's error) is returned. Blocking work runs on a GCD
     /// thread, not the async pool.
-    func launchMonitored(shortName: String) async throws -> String? {
+    func launchMonitored(shortName: String, extraArgs: [String] = []) async throws -> String? {
         try validateBinary()
         let exe = binaryURL
         let workingDir = exe.deletingLastPathComponent()
-        let args = ["-rompath", romPath, shortName]
+        let args = ["-rompath", romPath] + extraArgs + [shortName]
         return try await withCheckedThrowingContinuation {
             (continuation: CheckedContinuation<String?, Error>) in
             DispatchQueue.global(qos: .userInitiated).async {
@@ -151,6 +151,25 @@ struct MAMERunner {
                 }
             }
         }
+    }
+
+    /// Splits a launch-option string into argv, respecting double-quoted spans
+    /// so a quoted value with spaces stays one argument.
+    static func tokenize(_ string: String) -> [String] {
+        var tokens: [String] = []
+        var current = ""
+        var inQuotes = false
+        for ch in string {
+            if ch == "\"" {
+                inQuotes.toggle()
+            } else if ch == " " && !inQuotes {
+                if !current.isEmpty { tokens.append(current); current = "" }
+            } else {
+                current.append(ch)
+            }
+        }
+        if !current.isEmpty { tokens.append(current) }
+        return tokens
     }
 
     // MARK: - Private process plumbing

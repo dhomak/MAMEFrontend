@@ -227,6 +227,14 @@ struct ContentView: View {
             .width(min: 50, ideal: 60)
             .customizationID("year")
 
+            TableColumn("Plays", value: \.playCount) { game in
+                Text(game.playCount > 0 ? String(game.playCount) : "—")
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundStyle(game.playCount > 0 ? .secondary : .tertiary)
+            }
+            .width(min: 44, ideal: 56)
+            .customizationID("plays")
+
             TableColumn("Last played", value: \.lastPlayed) { game in
                 if game.hasBeenPlayed {
                     Text(game.lastPlayed.formatted(.relative(presentation: .named)))
@@ -334,6 +342,7 @@ struct ContentView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         detailHeader(for: game)
+                        launchOptionsSection(for: game)
                         Divider()
                         historyBody(for: game)
                     }
@@ -368,6 +377,25 @@ struct ContentView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func launchOptionsSection(for game: Game) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Launch options").font(.caption).foregroundStyle(.secondary)
+            TextField("e.g. -fullscreen -bios euro",
+                      text: optionsBinding(for: game.shortName))
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.caption, design: .monospaced))
+            Text("Extra MAME arguments, applied when you launch this game.")
+                .font(.caption2).foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func optionsBinding(for id: String) -> Binding<String> {
+        Binding(get: { model.launchOption(for: id) },
+                set: { model.setLaunchOption($0, for: id) })
     }
 
     @ViewBuilder

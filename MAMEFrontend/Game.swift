@@ -8,6 +8,7 @@ struct Game: Identifiable, Hashable {
     let parent: String?
 
     var lastPlayed: Date
+    var playCount: Int
     var year: Int
     let genre: String
     var manufacturer: String
@@ -34,6 +35,7 @@ struct Game: Identifiable, Hashable {
          isUnknown: Bool = false,
          parent: String? = nil,
          lastPlayed: Date = .distantPast,
+         playCount: Int = 0,
          year: Int = 0,
          genre: String = "",
          manufacturer: String = "",
@@ -46,6 +48,7 @@ struct Game: Identifiable, Hashable {
         self.isUnknown = isUnknown
         self.parent = parent
         self.lastPlayed = lastPlayed
+        self.playCount = playCount
         self.year = year
         self.genre = genre
         self.manufacturer = manufacturer

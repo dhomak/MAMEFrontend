@@ -284,47 +284,55 @@ final class LibraryModel {
     // MARK: - Artwork
 
     @MainActor
-    func loadArtwork(for game: Game) async -> Data? {
+    func loadArtwork(for game: Game, kind: ArtworkKind) async -> Data? {
         guard artworkConfigured else { return nil }
-        let base = artworkPath
+        let baseURL = URL(fileURLWithPath: artworkPath)
         let names = [game.shortName] + (game.parent.map { [$0] } ?? [])
-
-        if let data = await Task.detached(operation: {
-            ArtworkStore.extractedFile(base: base, names: names)
-        }).value {
-            return data
-        }
-
-        let baseURL = URL(fileURLWithPath: base)
         let fm = FileManager.default
-        for zipName in ArtworkStore.zipNames {
-            let zipURL = baseURL.appendingPathComponent(zipName)
-            guard fm.fileExists(atPath: zipURL.path) else { continue }
-            let entries = await entrySet(for: zipURL)
+
+        // Bezel: per-game archive, pick the best image inside.
+        if kind == .bezel {
             for name in names {
-                for ext in ArtworkStore.exts {
-                    guard let entry = ArtworkStore.entry(in: entries,
-                                                         matchingBasename: "\(name).\(ext)")
+                for ext in ["zip", "7z"] {
+                    let arc = baseURL.appendingPathComponent("\(name).\(ext)")
+                    guard fm.fileExists(atPath: arc.path) else { continue }
+                    let entries = await entrySet(for: arc)
+                    guard let entry = ArtworkStore.bestImageEntry(in: entries, preferNames: names)
                     else { continue }
                     if let data = await Task.detached(operation: {
-                        ArtworkStore.unzipEntry(archive: zipURL, entry: entry)
+                        ArtworkStore.extractEntry(archive: arc, entry: entry)
                     }).value {
                         return data
                     }
                 }
             }
+            return nil
         }
 
-        for name in names {
-            let gameZip = baseURL.appendingPathComponent("\(name).zip")
-            guard fm.fileExists(atPath: gameZip.path) else { continue }
-            let entries = await entrySet(for: gameZip)
-            guard let entry = ArtworkStore.bestImageEntry(in: entries, preferNames: names)
-            else { continue }
+        // Per-type container: extracted folder, then .zip, then .7z.
+        for container in kind.containers {
+            let dir = baseURL.appendingPathComponent(container)
             if let data = await Task.detached(operation: {
-                ArtworkStore.unzipEntry(archive: gameZip, entry: entry)
+                ArtworkStore.extractedFile(dir: dir, names: names)
             }).value {
                 return data
+            }
+            for ext in ["zip", "7z"] {
+                let arc = baseURL.appendingPathComponent("\(container).\(ext)")
+                guard fm.fileExists(atPath: arc.path) else { continue }
+                let entries = await entrySet(for: arc)
+                for name in names {
+                    for imgExt in ArtworkStore.exts {
+                        guard let entry = ArtworkStore.entry(in: entries,
+                                                             matchingBasename: "\(name).\(imgExt)")
+                        else { continue }
+                        if let data = await Task.detached(operation: {
+                            ArtworkStore.extractEntry(archive: arc, entry: entry)
+                        }).value {
+                            return data
+                        }
+                    }
+                }
             }
         }
         return nil
@@ -394,10 +402,7 @@ final class LibraryModel {
            let decoded = try? JSONDecoder().decode([String: Date].self, from: data) {
             lastPlayedByName = decoded
         }
-        if let data = defaults.data(forKey: yearCacheKey),
-           let decoded = try? JSONDecoder().decode([String: MachineMeta].self, from: data) {
-            metaCache = decoded
-        }
+        loadMetaCache()
         showFavoritesOnly = defaults.bool(forKey: "fFavorites")
         hideClones = defaults.bool(forKey: "fHideClones")
         hideNonWorking = defaults.bool(forKey: "fHideNonWorking")
@@ -430,10 +435,29 @@ final class LibraryModel {
         }
     }
 
+    // The metadata cache can be many MB for a full set — far past the UserDefaults
+    // limit — so it lives in a file, not NSUserDefaults.
+    private var metaCacheURL: URL? {
+        let fm = FileManager.default
+        guard let support = try? fm.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                                        appropriateFor: nil, create: true) else { return nil }
+        let dir = support.appendingPathComponent("MAMEFrontend", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("metaCacheV3.json")
+    }
+
+    private func loadMetaCache() {
+        // Clear any oversized value a previous build tried to write to UserDefaults.
+        UserDefaults.standard.removeObject(forKey: yearCacheKey)
+        guard let url = metaCacheURL, let data = try? Data(contentsOf: url),
+              let decoded = try? JSONDecoder().decode([String: MachineMeta].self, from: data)
+        else { return }
+        metaCache = decoded
+    }
+
     private func saveMetaCache() {
-        if let data = try? JSONEncoder().encode(metaCache) {
-            UserDefaults.standard.set(data, forKey: yearCacheKey)
-        }
+        guard let url = metaCacheURL, let data = try? JSONEncoder().encode(metaCache) else { return }
+        try? data.write(to: url, options: .atomic)
     }
 
     // MARK: - Disk scan

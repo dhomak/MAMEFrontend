@@ -19,6 +19,9 @@ struct ContentView: View {
     @AppStorage("sortField") private var sortField = "title"
     @AppStorage("sortAscending") private var sortAscending = true
     @AppStorage("columnsData") private var columnsData = ""
+    @AppStorage("artworkKind") private var artworkKindRaw = ArtworkKind.snapshot.rawValue
+
+    private var artworkKind: ArtworkKind { ArtworkKind(rawValue: artworkKindRaw) ?? .snapshot }
 
     @State private var selection: Game.ID?
     @State private var showingSettings = false
@@ -90,10 +93,10 @@ struct ContentView: View {
                 restoreSelection()
                 await model.loadHistory()
             }
-            .task(id: [selection ?? "", artworkPath]) {
+            .task(id: [selection ?? "", artworkPath, artworkKindRaw]) {
                 artwork = nil
                 guard let game = selectedGame else { return }
-                let data = await model.loadArtwork(for: game)
+                let data = await model.loadArtwork(for: game, kind: artworkKind)
                 if let data { artwork = NSImage(data: data) }
             }
     }
@@ -305,6 +308,15 @@ struct ContentView: View {
             if let game = selectedGame {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
+                        if model.artworkConfigured {
+                            Picker("Artwork", selection: $artworkKindRaw) {
+                                ForEach(ArtworkKind.allCases) { kind in
+                                    Text(kind.label).tag(kind.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                        }
                         if let artwork {
                             Image(nsImage: artwork)
                                 .resizable()
@@ -315,6 +327,11 @@ struct ContentView: View {
                                     RoundedRectangle(cornerRadius: 6)
                                         .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
                                 )
+                        } else if model.artworkConfigured {
+                            Text("No \(artworkKind.label.lowercased()) artwork for this game.")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         detailHeader(for: game)
                         Divider()

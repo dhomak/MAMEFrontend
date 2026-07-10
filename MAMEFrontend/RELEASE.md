@@ -1,4 +1,4 @@
-# MAMEFrontend — release (v0.3.0)
+# MAMEFrontend — release (v0.3.1)
 
 Everything here runs on your Mac (Xcode can't build from the container). Steps in
 order; the Gatekeeper part (step 4) is the one that actually bites when handing
@@ -16,7 +16,7 @@ it sits right next to native icons rather than showing wood edges.
 
 ## 2. Identity & version
 Target → **General**:
-- Version (`CFBundleShortVersionString`): `0.3.0`
+- Version (`CFBundleShortVersionString`): `0.3.1`
 - Build: `1`
 - Bundle Identifier: e.g. `com.aalien.MAMEFrontend`
 - Deployment target: **macOS 14.0**
@@ -56,7 +56,7 @@ survive:
 
 ```
 ditto -c -k --keepParent build/Build/Products/Release/MAMEFrontend.app \
-  MAMEFrontend-0.3.0.zip
+  MAMEFrontend-0.3.1.zip
 ```
 
 Send the zip. Tester unzips, moves to `/Applications`, right-click → Open.

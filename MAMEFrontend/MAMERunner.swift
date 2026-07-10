@@ -104,16 +104,52 @@ struct MAMERunner {
 
     // MARK: - Launching
 
-    /// Fire-and-forget launch of a machine.
-    func launch(shortName: String) throws {
+    /// Launches a machine and monitors it. A successful launch keeps running for
+    /// the whole play session (returns nil when the user later quits cleanly). A
+    /// *failed* launch exits quickly with a non-zero code — in that case the
+    /// captured stderr (MAME's error) is returned. Blocking work runs on a GCD
+    /// thread, not the async pool.
+    func launchMonitored(shortName: String) async throws -> String? {
         try validateBinary()
-        let process = Process()
-        process.executableURL = binaryURL
-        process.arguments = ["-rompath", romPath, shortName]
-        do {
-            try process.run()
-        } catch {
-            throw MAMEError.launchFailed(error.localizedDescription)
+        let exe = binaryURL
+        let workingDir = exe.deletingLastPathComponent()
+        let args = ["-rompath", romPath, shortName]
+        return try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<String?, Error>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let process = Process()
+                process.executableURL = exe
+                process.arguments = args
+                // MAME resolves diff/, cfg/, nvram/, etc. relative to the working
+                // directory — match a CLI run from the MAME folder.
+                process.currentDirectoryURL = workingDir
+                let errPipe = Pipe()
+                process.standardError = errPipe
+                process.standardOutput = FileHandle.nullDevice
+
+                let start = Date()
+                do {
+                    try process.run()
+                } catch {
+                    continuation.resume(throwing: MAMEError.launchFailed(error.localizedDescription))
+                    return
+                }
+                let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                let elapsed = Date().timeIntervalSince(start)
+
+                // Only treat a *quick* non-zero exit as a launch failure; a long
+                // session that later exits non-zero isn't a "failed to start".
+                if process.terminationStatus != 0 && elapsed < 20 {
+                    let raw = String(decoding: errData, as: UTF8.self)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    continuation.resume(returning: raw.isEmpty
+                        ? "MAME exited with code \(process.terminationStatus)."
+                        : raw)
+                } else {
+                    continuation.resume(returning: nil)
+                }
+            }
         }
     }
 
@@ -131,6 +167,7 @@ struct MAMERunner {
                 let process = Process()
                 process.executableURL = binaryURL
                 process.arguments = arguments
+                process.currentDirectoryURL = binaryURL.deletingLastPathComponent()
 
                 let outPipe = Pipe()
                 let errPipe = Pipe()
@@ -185,9 +222,11 @@ struct MachineMeta: Codable, Hashable {
     var isDevice: Bool = false
     var isMechanical: Bool = false
     var isSystem: Bool = false   // has a <softwarelist> => computer / console
+    var diskNames: [String] = [] // required (non-optional, dumped) CHD base names
 
     /// Not an arcade game (BIOS, device, mechanical, or software-consuming system).
     var nonGame: Bool { isBios || isDevice || isMechanical || isSystem }
+    var requiresDisk: Bool { !diskNames.isEmpty }
 }
 
 /// Pulls `<year>`, `<manufacturer>`, and the `<driver status>` attribute out of
@@ -221,6 +260,12 @@ final class MachineMetaParser: NSObject, XMLParserDelegate {
             if attributeDict["ismechanical"] == "yes" { current.isMechanical = true }
         case "softwarelist":
             current.isSystem = true
+        case "disk":
+            // A required disk that should be dumped (skip optional / nodump).
+            if attributeDict["optional"] != "yes", attributeDict["status"] != "nodump",
+               let name = attributeDict["name"] {
+                current.diskNames.append(name)
+            }
         case "year":
             capturing = "year"; buffer = ""
         case "manufacturer":

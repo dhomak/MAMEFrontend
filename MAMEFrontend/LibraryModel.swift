@@ -1,11 +1,19 @@
 import Foundation
 import Observation
 
+/// A failed game launch, surfaced to the user as an alert.
+struct LaunchFailure: Identifiable {
+    let id = UUID()
+    let game: String
+    let message: String
+}
+
 @Observable
 final class LibraryModel {
     // Config (pushed in from @AppStorage in the view).
     var mameBinaryPath = ""
     var romPath = ""
+    var chdPath = ""
     var historyPath = ""
     var catverPath = ""
     var artworkPath = ""
@@ -16,6 +24,7 @@ final class LibraryModel {
     private(set) var categories: [String] = []     // distinct genre categories (cached)
     private(set) var isLoading = false
     private(set) var errorMessage: String?
+    var launchError: LaunchFailure?
 
     // History state
     private(set) var historyIndex: [String: String] = [:]
@@ -42,11 +51,17 @@ final class LibraryModel {
 
     private let favoritesKey = "favorites"
     private let lastPlayedKey = "lastPlayed"
-    private let yearCacheKey = "metaCacheV2"
+    private let yearCacheKey = "metaCacheV3"
 
     init() { loadUserData() }
 
     var isConfigured: Bool { !mameBinaryPath.isEmpty && !romPath.isEmpty }
+
+    /// Semicolon-joined rompath so MAME searches both the ROM folder and the
+    /// (optional) CHD folder for disks.
+    private var combinedRomPath: String {
+        chdPath.isEmpty ? romPath : "\(romPath);\(chdPath)"
+    }
     var historyConfigured: Bool { !historyPath.isEmpty }
     var artworkConfigured: Bool { !artworkPath.isEmpty }
 
@@ -104,13 +119,13 @@ final class LibraryModel {
         errorMessage = nil
         zipEntryCache = [:]
 
-        let runner = MAMERunner(binaryPath: mameBinaryPath, romPath: romPath)
-        let path = romPath
+        let runner = MAMERunner(binaryPath: mameBinaryPath, romPath: combinedRomPath)
+        let scanPaths = [romPath, chdPath].filter { !$0.isEmpty }
         let catver = catverPath
         do {
             async let nameMapTask = runner.listFull()
             async let clonesTask  = runner.listClones()
-            let owned = await Task.detached { Self.scanOwnedShortNames(in: path) }.value
+            let owned = await Task.detached { Self.scanOwnedShortNames(in: scanPaths) }.value
             let genreIndex: [String: String] = catver.isEmpty
                 ? [:]
                 : (await Task.detached { (try? CatverStore.index(fromFileAt: catver)) ?? [:] }.value)
@@ -132,18 +147,24 @@ final class LibraryModel {
                 let played = lastPlayedByName[short] ?? .distantPast
                 let meta = metaCache[short]
                 let genre = genreIndex[short] ?? (parent.flatMap { genreIndex[$0] }) ?? ""
+                let requiresDisk = meta?.requiresDisk ?? false
+                let diskPresent = requiresDisk
+                    ? isDiskPresent(shortName: short, parent: parent, diskNames: meta?.diskNames ?? [])
+                    : false
                 if let desc = nameMap[short] {
                     return Game(shortName: short, description: desc,
                                 parent: parent, lastPlayed: played,
                                 year: meta?.year ?? 0, genre: genre,
                                 manufacturer: meta?.manufacturer ?? "", status: meta?.status ?? "",
-                                isNonGame: meta?.nonGame ?? false)
+                                isNonGame: meta?.nonGame ?? false,
+                                requiresDisk: requiresDisk, diskPresent: diskPresent)
                 } else {
                     return Game(shortName: short, description: short, isUnknown: true,
                                 parent: parent, lastPlayed: played,
                                 year: meta?.year ?? 0, genre: genre,
                                 manufacturer: meta?.manufacturer ?? "", status: meta?.status ?? "",
-                                isNonGame: meta?.nonGame ?? false)
+                                isNonGame: meta?.nonGame ?? false,
+                                requiresDisk: requiresDisk, diskPresent: diskPresent)
                 }
             }
 
@@ -194,6 +215,10 @@ final class LibraryModel {
             if !m.manufacturer.isEmpty { n.manufacturer = m.manufacturer }
             if !m.status.isEmpty { n.status = m.status }
             n.isNonGame = m.nonGame
+            n.requiresDisk = m.requiresDisk
+            n.diskPresent = m.requiresDisk
+                ? isDiskPresent(shortName: n.shortName, parent: n.parent, diskNames: m.diskNames)
+                : false
             return n
         }
         games = games.map(updated)
@@ -204,11 +229,36 @@ final class LibraryModel {
                 if !m.manufacturer.isEmpty { g.manufacturer = m.manufacturer }
                 if !m.status.isEmpty { g.status = m.status }
                 g.isNonGame = m.nonGame
+                g.requiresDisk = m.requiresDisk
+                g.diskPresent = m.requiresDisk
+                    ? isDiskPresent(shortName: name, parent: g.parent, diskNames: m.diskNames)
+                    : false
                 gamesByID[name] = g
             }
         }
         // Newly-learned kinds/statuses may change a filtered view.
         if hideNonWorking || hideNonGames { recompute() }
+    }
+
+    /// True if every required disk is found at `<path>/<machine or parent>/<disk>.chd`.
+    private func isDiskPresent(shortName: String, parent: String?, diskNames: [String]) -> Bool {
+        guard !diskNames.isEmpty else { return true }
+        let paths = [romPath, chdPath].filter { !$0.isEmpty }
+        let folders = [shortName] + (parent.map { [$0] } ?? [])
+        let fm = FileManager.default
+        for disk in diskNames {
+            var found = false
+            search: for path in paths {
+                for folder in folders {
+                    let url = URL(fileURLWithPath: path)
+                        .appendingPathComponent(folder)
+                        .appendingPathComponent("\(disk).chd")
+                    if fm.fileExists(atPath: url.path) { found = true; break search }
+                }
+            }
+            if !found { return false }
+        }
+        return true
     }
 
     @MainActor
@@ -294,21 +344,29 @@ final class LibraryModel {
 
     @MainActor
     func launch(_ game: Game) {
-        let runner = MAMERunner(binaryPath: mameBinaryPath, romPath: romPath)
-        do {
-            try runner.launch(shortName: game.shortName)
-            let now = Date()
-            lastPlayedByName[game.shortName] = now
-            if let i = games.firstIndex(where: { $0.shortName == game.shortName }) {
-                games[i].lastPlayed = now
+        // Record play time optimistically.
+        let now = Date()
+        lastPlayedByName[game.shortName] = now
+        if let i = games.firstIndex(where: { $0.shortName == game.shortName }) {
+            games[i].lastPlayed = now
+        }
+        if let i = displayGames.firstIndex(where: { $0.shortName == game.shortName }) {
+            displayGames[i].lastPlayed = now
+        }
+        if var g = gamesByID[game.shortName] { g.lastPlayed = now; gamesByID[game.shortName] = g }
+        saveUserData()
+
+        // Spawn and watch for a fast failure without blocking the UI.
+        let runner = MAMERunner(binaryPath: mameBinaryPath, romPath: combinedRomPath)
+        let title = game.description
+        Task {
+            do {
+                if let failure = try await runner.launchMonitored(shortName: game.shortName) {
+                    launchError = LaunchFailure(game: title, message: String(failure.prefix(800)))
+                }
+            } catch {
+                launchError = LaunchFailure(game: title, message: error.localizedDescription)
             }
-            if let i = displayGames.firstIndex(where: { $0.shortName == game.shortName }) {
-                displayGames[i].lastPlayed = now
-            }
-            if var g = gamesByID[game.shortName] { g.lastPlayed = now; gamesByID[game.shortName] = g }
-            saveUserData()
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 
@@ -380,17 +438,31 @@ final class LibraryModel {
 
     // MARK: - Disk scan
 
-    static func scanOwnedShortNames(in romPath: String) -> [String] {
+    /// Collects owned machine short names across the given paths: `.zip`/`.7z`
+    /// archive base names, plus subfolders containing a `.chd` (CHD-only sets).
+    static func scanOwnedShortNames(in paths: [String]) -> [String] {
         let fm = FileManager.default
-        guard let entries = try? fm.contentsOfDirectory(atPath: romPath) else { return [] }
         let romExtensions: Set<String> = ["zip", "7z"]
         var names: Set<String> = []
-        for entry in entries {
-            let url = URL(fileURLWithPath: entry)
-            if romExtensions.contains(url.pathExtension.lowercased()) {
-                names.insert(url.deletingPathExtension().lastPathComponent)
+        for path in paths where !path.isEmpty {
+            let base = URL(fileURLWithPath: path)
+            guard let entries = try? fm.contentsOfDirectory(
+                at: base, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
+            ) else { continue }
+            for url in entries {
+                let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+                if isDir {
+                    if folderContainsCHD(url) { names.insert(url.lastPathComponent) }
+                } else if romExtensions.contains(url.pathExtension.lowercased()) {
+                    names.insert(url.deletingPathExtension().lastPathComponent)
+                }
             }
         }
         return Array(names)
+    }
+
+    private static func folderContainsCHD(_ dir: URL) -> Bool {
+        guard let items = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else { return false }
+        return items.contains { $0.lowercased().hasSuffix(".chd") }
     }
 }

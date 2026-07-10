@@ -8,6 +8,7 @@ struct ContentView: View {
     // Config
     @AppStorage("mameBinaryPath") private var mameBinaryPath = ""
     @AppStorage("romPath") private var romPath = ""
+    @AppStorage("chdPath") private var chdPath = ""
     @AppStorage("historyPath") private var historyPath = ""
     @AppStorage("catverPath") private var catverPath = ""
     @AppStorage("artworkPath") private var artworkPath = ""
@@ -54,11 +55,20 @@ struct ContentView: View {
         .sheet(isPresented: $showingSettings) {
             SettingsView(mameBinaryPath: $mameBinaryPath,
                          romPath: $romPath,
+                         chdPath: $chdPath,
                          historyPath: $historyPath,
                          catverPath: $catverPath,
                          artworkPath: $artworkPath) {
                 syncAndReload()
             }
+        }
+        .alert("Couldn't launch game",
+               isPresented: Binding(get: { model.launchError != nil },
+                                    set: { if !$0 { model.launchError = nil } }),
+               presenting: model.launchError) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { failure in
+            Text("\(failure.game) didn't start.\n\n\(failure.message)")
         }
     }
 
@@ -167,6 +177,14 @@ struct ContentView: View {
                     statusDot(game.status)
                     Text(game.description)
                     if game.isClone { cloneBadge }
+                    if game.requiresDisk {
+                        Image(systemName: "internaldrive")
+                            .imageScale(.small)
+                            .foregroundStyle(game.diskPresent ? Color.secondary : Color.red)
+                            .help(game.diskPresent
+                                  ? "Requires a disk (CHD) — present"
+                                  : "Requires a disk (CHD) — missing")
+                    }
                     if game.isUnknown {
                         Image(systemName: "questionmark.circle")
                             .foregroundStyle(.secondary)
@@ -477,6 +495,7 @@ struct ContentView: View {
     private func syncConfig() {
         model.mameBinaryPath = mameBinaryPath
         model.romPath = romPath
+        model.chdPath = chdPath
         model.historyPath = historyPath
         model.catverPath = catverPath
         model.artworkPath = artworkPath
@@ -512,6 +531,7 @@ struct WindowAccessor: NSViewRepresentable {
 struct SettingsView: View {
     @Binding var mameBinaryPath: String
     @Binding var romPath: String
+    @Binding var chdPath: String
     @Binding var historyPath: String
     @Binding var catverPath: String
     @Binding var artworkPath: String
@@ -527,6 +547,8 @@ struct SettingsView: View {
                     chooseDirectory: false, prompt: "/opt/homebrew/bin/mame")
             pathRow(title: "ROM path", text: $romPath,
                     chooseDirectory: true, prompt: "~/roms")
+            pathRow(title: "CHD / extra ROM path (optional)", text: $chdPath,
+                    chooseDirectory: true, prompt: "~/chds")
             pathRow(title: "History file (optional)", text: $historyPath,
                     chooseDirectory: false, prompt: "~/history.xml or history.dat")
             pathRow(title: "catver.ini (optional)", text: $catverPath,

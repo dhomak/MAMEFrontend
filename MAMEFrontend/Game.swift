@@ -13,6 +13,8 @@ struct Game: Identifiable, Hashable {
     var manufacturer: String
     var status: String        // driver status: good / imperfect / preliminary / "" (unknown)
     var isNonGame: Bool       // BIOS / device / mechanical / computer-console system
+    var requiresDisk: Bool    // needs a CHD
+    var diskPresent: Bool     // the required CHD(s) were found on disk
 
     // Precomputed once at construction so filtering/sorting never re-allocates.
     let sortTitle: String   // lowercased description (sort key)
@@ -36,7 +38,9 @@ struct Game: Identifiable, Hashable {
          genre: String = "",
          manufacturer: String = "",
          status: String = "",
-         isNonGame: Bool = false) {
+         isNonGame: Bool = false,
+         requiresDisk: Bool = false,
+         diskPresent: Bool = false) {
         self.shortName = shortName
         self.description = description
         self.isUnknown = isUnknown
@@ -47,6 +51,8 @@ struct Game: Identifiable, Hashable {
         self.manufacturer = manufacturer
         self.status = status
         self.isNonGame = isNonGame
+        self.requiresDisk = requiresDisk
+        self.diskPresent = diskPresent
 
         self.sortTitle = description.lowercased()
         self.searchKey = (description + " " + shortName).lowercased()

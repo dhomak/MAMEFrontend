@@ -51,7 +51,6 @@ the release/packaging process.
 - **Merged sets**: clones living inside a parent archive aren't listed
   individually yet. Fixing this means enriching with `cloneof` data from
   `-listxml <parent>`, streamed via `XMLParser`/SAX rather than DOM-loaded.
-- No artwork, genres (`catver.ini`), favorites, or last-played yet.
 - MAME CLI flags should be checked against `mame -help` for your specific
   build before being trusted.
 

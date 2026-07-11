@@ -34,6 +34,7 @@ struct ContentView: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var columnCustomization = TableColumnCustomization<Game>()
     @State private var window: NSWindow?
+    @AppStorage("launchOptionsExpanded") private var launchOptionsExpanded = false
 
     private var selectedGame: Game? {
         guard let id = selection else { return nil }
@@ -322,33 +323,9 @@ struct ContentView: View {
         Group {
             if let game = selectedGame {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        if model.artworkConfigured {
-                            Picker("Artwork", selection: $artworkKindRaw) {
-                                ForEach(ArtworkKind.allCases) { kind in
-                                    Text(kind.label).tag(kind.rawValue)
-                                }
-                            }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
-                        }
-                        if let artwork {
-                            Image(nsImage: artwork)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(maxWidth: .infinity)
-                                .clipShape(RoundedRectangle(cornerRadius: 6))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                                )
-                        } else if model.artworkConfigured {
-                            Text("No \(artworkKind.label.lowercased()) artwork for this game.")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
+                    VStack(alignment: .leading, spacing: 14) {
                         detailHeader(for: game)
+                        artworkSection
                         launchOptionsSection(for: game)
                         Divider()
                         infoBody(for: game)
@@ -366,43 +343,133 @@ struct ContentView: View {
 
     @ViewBuilder
     private func detailHeader(for game: Game) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 5) {
             Text(game.description)
                 .font(.headline)
                 .fixedSize(horizontal: false, vertical: true)
+
             HStack(spacing: 8) {
                 Text(game.shortName)
                     .font(.system(.caption, design: .monospaced))
                 if game.hasYear { Text(String(game.year)).font(.caption) }
-                if game.isClone, let parent = game.parent {
-                    Text("clone of \(parent)").font(.caption)
+                if game.playCount > 0 {
+                    Text("\(game.playCount) play\(game.playCount == 1 ? "" : "s")").font(.caption)
                 }
             }
             .foregroundStyle(.secondary)
+
+            if !game.manufacturer.isEmpty {
+                Text(game.manufacturer).font(.caption).foregroundStyle(.secondary)
+            }
             if !game.genre.isEmpty {
                 Text(game.genre).font(.caption).foregroundStyle(.secondary)
             }
+
+            HStack(spacing: 6) {
+                if !game.status.isEmpty {
+                    HStack(spacing: 4) {
+                        statusDot(game.status)
+                        Text(statusLabel(game.status)).font(.caption2)
+                    }
+                    .foregroundStyle(.secondary)
+                }
+                if game.isClone, let parent = game.parent {
+                    Text("clone of \(parent)")
+                        .font(.caption2)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Color.secondary.opacity(0.15), in: Capsule())
+                        .foregroundStyle(.secondary)
+                }
+                if game.requiresDisk {
+                    HStack(spacing: 3) {
+                        Image(systemName: "internaldrive").imageScale(.small)
+                        Text(game.diskPresent ? "CHD" : "CHD missing").font(.caption2)
+                    }
+                    .foregroundStyle(game.diskPresent ? Color.secondary : Color.red)
+                }
+            }
+            .padding(.top, 1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private func statusLabel(_ status: String) -> String {
+        switch status {
+        case "good":        return "Working"
+        case "imperfect":   return "Imperfect"
+        case "preliminary": return "Not working"
+        default:            return ""
+        }
+    }
+
     @ViewBuilder
     private func launchOptionsSection(for game: Game) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Launch options").font(.caption).foregroundStyle(.secondary)
-            TextField("e.g. -fullscreen -bios euro",
-                      text: optionsBinding(for: game.shortName))
-                .textFieldStyle(.roundedBorder)
-                .font(.system(.caption, design: .monospaced))
-            Text("Extra MAME arguments, applied when you launch this game.")
-                .font(.caption2).foregroundStyle(.tertiary)
+        DisclosureGroup(isExpanded: $launchOptionsExpanded) {
+            VStack(alignment: .leading, spacing: 4) {
+                TextField("e.g. -fullscreen -bios euro",
+                          text: optionsBinding(for: game.shortName))
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+                Text("Extra MAME arguments, applied when you launch this game.")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+            .padding(.top, 4)
+        } label: {
+            HStack(spacing: 6) {
+                Text("Launch options").font(.caption).foregroundStyle(.secondary)
+                if !model.launchOption(for: game.shortName).isEmpty {
+                    Circle().fill(Color.accentColor).frame(width: 5, height: 5)
+                }
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func optionsBinding(for id: String) -> Binding<String> {
         Binding(get: { model.launchOption(for: id) },
                 set: { model.setLaunchOption($0, for: id) })
+    }
+
+    @ViewBuilder
+    private var artworkSection: some View {
+        if model.artworkConfigured {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Artwork")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Picker("", selection: $artworkKindRaw) {
+                        ForEach(ArtworkKind.allCases) { kind in
+                            Text(kind.label).tag(kind.rawValue)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .controlSize(.small)
+                    .fixedSize()
+                }
+                if let artwork {
+                    Image(nsImage: artwork)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                        )
+                } else {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.secondary.opacity(0.08))
+                        .frame(height: 90)
+                        .overlay(
+                            Text("No \(artworkKind.label.lowercased()) artwork")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        )
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -417,11 +484,7 @@ struct ContentView: View {
             .pickerStyle(.segmented)
 
             if let text = model.info(infoTab, for: game) {
-                Text(text)
-                    .font(.callout)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                InfoTextView(text: text, preformatOnly: infoTab == .command)
             } else if !model.isConfigured(infoTab) {
                 Text("Set \(infoTab.fileHint) in Settings to show this.")
                     .font(.caption)

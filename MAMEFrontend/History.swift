@@ -62,12 +62,13 @@ enum HistoryStore {
     /// and command.dat:
     ///
     ///     $info=puckman,pacman
-    ///     $bio                  ($cmd in command.dat)
+    ///     $bio                  ($cmd in command.dat, $mame in mameinfo.dat, …)
     ///     ...text...
     ///     $end
     ///
-    /// Any `$<tag>=names` line sets the current system list; `$bio`/`$cmd` starts
-    /// the body; `$end` flushes it to every listed system.
+    /// A `$<tag>=names` line sets the current machine list. Any *other* `$` line
+    /// (no `=`) is treated as a body marker — the marker name varies by file, so
+    /// we don't hardcode it. `$end` flushes the body to every listed machine.
     static func parseDAT(_ content: String) -> [String: String] {
         var index: [String: String] = [:]
         var currentNames: [String] = []
@@ -76,10 +77,7 @@ enum HistoryStore {
 
         content.enumerateLines { line, _ in
             if line.hasPrefix("$") {
-                if line.hasPrefix("$bio") || line.hasPrefix("$cmd") {
-                    capturing = true
-                    buffer = []
-                } else if line.hasPrefix("$end") {
+                if line.hasPrefix("$end") {
                     capturing = false
                     let text = buffer.joined(separator: "\n")
                         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -88,13 +86,19 @@ enum HistoryStore {
                     }
                     currentNames = []
                 } else if let eq = line.firstIndex(of: "=") {
+                    // "$info=name1,name2" (or "$mame=…" style headers)
                     let namesPart = line[line.index(after: eq)...]
-                    currentNames = namesPart
+                    let names = namesPart
                         .split(separator: ",")
                         .map { $0.trimmingCharacters(in: .whitespaces) }
                         .filter { !$0.isEmpty }
+                    if !names.isEmpty { currentNames = names }
+                } else {
+                    // Any other bare "$tag" line ($bio / $cmd / $mame / …) starts
+                    // the body for the machines named above.
+                    capturing = true
+                    buffer = []
                 }
-                // Other `$` lines (comments, unrelated tags) are ignored.
             } else if capturing {
                 buffer.append(line)
             }

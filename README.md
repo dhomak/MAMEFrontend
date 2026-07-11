@@ -1,10 +1,10 @@
 # MAMEFrontend
 
-A fast, native **MAME launcher for macOS** — built in Swift/SwiftUI for Apple Silicon. It scans your ROM set, gives every game a real name, artwork, genre, release year, working status, and history/trivia, and launches it in MAME with one keystroke.
+A fast, native **MAME launcher for macOS** — Swift/SwiftUI, built for Apple Silicon. It scans your ROM set, gives every game a real name, artwork, genre, year, manufacturer, working status, and history/trivia, and launches it in MAME with one keystroke.
 
-No Electron, no web view — a single small `.app` that wraps the `mame` command-line binary you already have.
+No Electron, no web view — a single small `.app` wrapping the `mame` binary you already have.
 
-> ⚠️ **No ROMs, BIOS, or CHDs are included or distributed with this project.** It is a launcher only. You must supply your own, legally obtained MAME set.
+> ⚠️ **No ROMs, BIOS, or CHDs are included or distributed with this project.** It is a launcher only. Bring your own, legally obtained MAME set.
 
 ![Screenshot](.github/images/screenshot.png)
 
@@ -13,35 +13,56 @@ No Electron, no web view — a single small `.app` that wraps the `mame` command
 ## Features
 
 ### Library
-- **Real names, not filenames** — resolves `mslug` → *Metal Slug - Super Vehicle-001* via `mame -listfull`.
-- **Merged-set aware** — surfaces clones that live inside a parent archive (via `-listclones`), so a merged romset shows every playable machine, not just the parent zips.
-- **CHD support** — detects CHD-only games (subfolders containing a `.chd`), supports a separate CHD/extra-ROM path, and launches disk games correctly.
-- **Sortable, resizable columns** — Game, Genre, Manufacturer, Short name, Year, Last played. Column order/visibility/width and sort are remembered.
-- **Fast search** — debounced, with precomputed keys, so filtering a 40k-machine set stays instant.
+- **Real names, not filenames** — `mslug` → *Metal Slug - Super Vehicle-001* (via `mame -listfull`).
+- **Merged-set aware** — surfaces clones living inside a parent archive (`-listclones`), so a merged romset shows every playable machine, not just the parent zips.
+- **CHD support** — detects CHD-only games, supports a separate CHD/extra-ROM path, and launches disk games correctly.
+- **Sortable, customizable columns** — Game, Genre, Manufacturer, Short name, Year, Plays, Last played. Order, width, visibility, and sort all persist. Truncated cells show full text on hover.
+- **Fast search** — debounced with precomputed keys, so a 40k-machine set stays instant.
+
+### Search
+Matches name, short name, **and manufacturer**. Year queries are understood:
+
+| Type | Example |
+|---|---|
+| Exact year | `1996` |
+| Decade | `199x` or `1990s` |
+| Range | `1990-1995` |
+| Anything else | plain text (`konami`, `metal slug`, `mslug`) |
 
 ### Metadata (from `mame -listxml`, cached to disk)
-- **Year** and **manufacturer**
+- **Year**, **manufacturer**
 - **Working status** dot — good / imperfect / preliminary
-- **Disk badge** — shows which games need a CHD and whether it's present (gray) or missing (red)
-- **Genres** from `catver.ini`, with a top-level category filter
+- **Disk badge** — needs a CHD, and whether it's present (gray) or missing (red)
+- **BIOS revisions** — resolved through the `romof` chain
+- **Genres** from `catver.ini`, with a category filter
 
 ### Filters
-- Genre (category) dropdown
-- A **Filter** menu: *Favorites only*, *Hide clones*, *Hide non-working*, *Hide non-games* (BIOS, devices, mechanical, and computer/console systems)
-- All filters, plus search and sort, persist across launches
+A single **Filter** menu (its icon fills when anything is active):
+- Favorites only
+- Hide clones
+- Hide non-working (preliminary drivers)
+- Hide non-games (BIOS, devices, mechanical, computer/console systems)
+- Hide mature (catver's `* Mature *` marker)
+
+Plus a genre-category dropdown. A **status bar** shows "1,247 of 12,003 games" with a one-click **Clear**. All filters persist.
 
 ### Details inspector
-- **Artwork** with a type switcher — Snap / Title / Marquee / Cabinet / Flyer / Cover / Bezel. Reads extracted folders, `.zip` (system `unzip`), and `.7z` (self-contained; see below).
-- **History & trivia** from the History.dat project (`history.xml` or legacy `history.dat`), with parent fallback for clones.
+- **Header** — title, short name, year, play count, manufacturer, genre, and badges (status, clone-of, CHD, mature)
+- **Artwork** with a type switcher — Snap · Title · Marquee · Cabinet · Flyer · Cover · Bezel. Reads extracted folders, `.zip`, and `.7z`.
+- **Launch options** (collapsible) — a **BIOS dropdown** and a free-form MAME arguments field, per game
+- **Reference tabs** — **History** / **Info** (`mameinfo.dat`) / **Commands** (`command.dat`), with typographic formatting: section headings, key–value fields, and monospaced move lists
 
-### Favorites & recents
-- Favorite any game (persisted)
-- **Last played** column, stamped on launch
+### Favorites, stats & launching
+- Favorite any game; **Plays** counter and **Last played** column (sort by either for "most played" / "recently played")
+- Plays only count when MAME **actually starts** — a failed launch rolls back
+- **Launch feedback** — if MAME fails, its real error is surfaced in an alert instead of failing silently
+- MAME runs from its own directory, so `diff/`, `cfg/`, `nvram/`, and `mame.ini` resolve exactly as they do from the command line
 
-### Launching
-- Runs MAME from its own directory so `diff/`, `cfg/`, `nvram/`, and `mame.ini` resolve exactly as they do from the command line.
-- **Launch feedback** — if MAME fails to start (missing ROM/CHD, bad dump), the actual error is surfaced in an alert instead of failing silently.
-- Deep-link into MAME's own input remapper via its Tab menu.
+### Backup
+**Export / Import** favorites, play counts, last-played, launch options, and BIOS choices as JSON. Import can **merge** (non-destructive: unions favorites, keeps the higher play count and newer date) or **replace**.
+
+### Appearance
+System / Light / Dark.
 
 ### Keyboard & menus
 | Shortcut | Action |
@@ -55,47 +76,53 @@ No Electron, no web view — a single small `.app` that wraps the `mame` command
 | `Cmd Opt I` | Toggle details inspector |
 | `Cmd Shift K` | Clear filters |
 
-Window size/position, inspector state, and last selection are all restored on relaunch.
+Right-click a game for **Play**, **Favorite**, **Reveal in Finder** (finds the zip *or* the CHD folder), **Copy Short Name**, **Copy Name**.
+
+Window size/position, inspector state, and last selection are restored on relaunch.
 
 ---
 
 ## Requirements
 
 - **macOS 14 (Sonoma) or newer**
-- **A MAME binary** — an Apple-Silicon build of `mame` (e.g. `brew install mame`, or a build from [mamedev.org](https://www.mamedev.org)). The frontend does not include MAME.
+- **A MAME binary** — an Apple-Silicon build of `mame` (`brew install mame`, or from [mamedev.org](https://www.mamedev.org)). Not included.
 - A MAME ROM set (yours).
 
-Everything below is **optional** but recommended:
+Optional, but each unlocks a feature:
 
-| Data | Where to get it | Points the app at |
+| Data | Source | Setting |
 |---|---|---|
 | History / trivia | [History.dat project](https://www.arcade-history.com/) (`history.xml` or `history.dat`) | *History file* |
+| Emulation notes | `mameinfo.dat` | *mameinfo.dat* |
+| Move lists | `command.dat` | *command.dat* |
 | Genres | `catver.ini` (progetto-SNAPS `pS_CatVer`) | *catver.ini* |
-| Artwork | progetto-SNAPS packs (`snap`, `titles`, `marquees`, …) as folders / `.zip` / `.7z`; or MAME `artwork` (bezels) | *Artwork folder* |
-| CHDs | your disk images, in `<name>/<name>.chd` subfolders | *CHD / extra ROM path* |
+| Artwork | progetto-SNAPS packs, or MAME `artwork` (bezels) | *Artwork folder* |
+| CHDs | disk images in `<name>/<name>.chd` subfolders | *CHD / extra ROM path* |
 
 ---
 
 ## Setup
 
-1. Launch the app, open **Settings** (`Cmd ,`).
-2. Set the **MAME binary** (e.g. `/opt/homebrew/bin/mame` or `~/mame0288-arm64/mame`) and your **ROM path**.
-3. Optionally set the CHD path, history file, `catver.ini`, and artwork folder.
-4. **Save** — the library scans, then metadata fills in progressively (once; it's cached after).
+1. Open **Settings** (`Cmd ,`).
+2. **General** — set the **MAME binary** and **ROM path** (and the CHD path if your disks live elsewhere).
+3. **Metadata** — optionally point at history / mameinfo / command / catver / artwork.
+4. **Save.** The library scans, then metadata fills in progressively (a progress bar shows how far along). It's cached after the first pass.
 
-**Artwork layout:** put your per-type packs in one folder and name them by type — `snap.7z`, `titles.7z`, `marquees.zip`, etc. (or extracted `snap/`, `titles/` folders). Use the dropdown in the inspector to switch types. *Bezel* reads per-game `<name>.zip`/`.7z` (MAME artwork packs) instead.
+**Artwork layout:** put per-type packs in one folder, named by type — `snap.7z`, `titles.7z`, `marquees.zip`, or extracted `snap/` `titles/` folders. Switch types in the inspector. *Bezel* reads per-game `<name>.zip`/`.7z` (MAME artwork packs) instead.
+
+**Maintenance** (Settings → General): **Clear metadata cache** forces a re-read from MAME (handy after a MAME version bump). **Reset all settings** wipes everything — export a backup first.
 
 ---
 
 ## Self-contained 7-Zip (optional)
 
-`.7z` artwork is decoded with the `7zz` binary. To make it work on machines without Homebrew's `sevenzip`, **bundle `7zz` in the app**:
+`.7z` artwork is decoded with `7zz`. To make it work on machines without Homebrew's `sevenzip`, bundle the binary:
 
-1. `cp /opt/homebrew/bin/7zz <project>/7zz` (or grab the universal console build from [7-zip.org](https://www.7-zip.org)).
-2. Drag `7zz` into the Xcode project → check **Copy items if needed** and the **MAMEFrontend** target.
-3. Ensure it's in **Build Phases → Copy Bundle Resources**.
+1. `cp /opt/homebrew/bin/7zz <project>/7zz` (or the universal build from [7-zip.org](https://www.7-zip.org)).
+2. Drag it into Xcode → **Copy items if needed**, target **MAMEFrontend**.
+3. Confirm it's in **Build Phases → Copy Bundle Resources**.
 
-The app finds the bundled binary first (copying it to Application Support and marking it executable if needed), and falls back to a system `7zz`/`7z`/`7za` otherwise. Without it, `.zip` and extracted-folder artwork still work everywhere. (`unzip` ships with macOS, so `.zip` needs no bundling.)
+The app prefers the bundled binary (copying it to Application Support and marking it executable if needed) and falls back to a system `7zz`/`7z`/`7za`. Without it, `.zip` and extracted folders still work everywhere (`unzip` ships with macOS).
 
 ---
 
@@ -107,19 +134,17 @@ cd MAMEFrontend
 open MAMEFrontend.xcodeproj
 ```
 
-- Xcode 15+ (developed on Xcode 26).
-- Deployment target **macOS 14.0**.
+- Xcode 15+ (developed on Xcode 26)
+- Deployment target **macOS 14.0**
 - **App Sandbox must be OFF** (Signing & Capabilities) — the app spawns an external binary and reads arbitrary folders; sandboxing breaks both.
 
 ### Alpha packaging
 
-`package_alpha.sh` builds Release, ad-hoc signs, and zips the app with `ditto`:
-
 ```bash
-./package_alpha.sh          # or: VERSION=0.1.1 ./package_alpha.sh
+./package_alpha.sh          # or: VERSION=0.3.8 ./package_alpha.sh
 ```
 
-Since alpha builds aren't notarized, testers clear Gatekeeper once (right-click -> **Open**, or `xattr -dr com.apple.quarantine /Applications/MAMEFrontend.app`).
+Builds Release, ad-hoc signs, and zips with `ditto`. Alpha builds aren't notarized, so testers clear Gatekeeper once (right-click → **Open**, or `xattr -dr com.apple.quarantine /Applications/MAMEFrontend.app`).
 
 ---
 
@@ -129,50 +154,54 @@ Plain Swift + SwiftUI, `@Observable` model, no third-party Swift dependencies.
 
 | File | Responsibility |
 |---|---|
-| `MAMEFrontendApp.swift` | App entry point, menu-bar commands & shortcuts |
-| `ContentView.swift` | Table, details inspector, settings sheet, all view state & persistence |
-| `LibraryModel.swift` | `@Observable` model — scanning, filtering, launching, caching |
+| `MAMEFrontendApp.swift` | App entry, menu-bar commands & shortcuts |
+| `ContentView.swift` | Table, inspector, settings sheet, view state & persistence |
+| `LibraryModel.swift` | `@Observable` model — scanning, filtering, launching, caching, backup |
 | `MAMERunner.swift` | `Process` wrapper for `-listfull` / `-listclones` / `-listxml` / launch; SAX metadata parser |
-| `Game.swift` | The per-machine model struct |
+| `Game.swift` | Per-machine model struct (with precomputed sort/search keys) |
 | `Catver.swift` | `catver.ini` `[Category]` parser |
-| `History.swift` | `history.xml` (SAX) and legacy `history.dat` parser |
+| `History.swift` | `history.xml` (SAX) + the shared `.dat` grammar (history / mameinfo / command) |
+| `InfoFormatter.swift` | Turns `.dat` text into headings, fields, and preformatted blocks |
 | `Artwork.swift` | Artwork resolution (folder / zip / 7z), `ArtworkKind`, bundled-`7zz` resolver |
+| `Appearance.swift` | Light / dark / system |
 
 **Design notes**
-- Metadata is fetched from `-listxml` in bounded batches (scoped to owned machines, not the full 40k dump) and SAX-parsed for constant memory.
-- The display list is computed once into a cached array; search is debounced.
-- MAME's giant `-listxml` is never DOM-loaded; archive listings are cached per session.
+- `-listxml` is fetched in bounded batches scoped to *owned* machines (never the full 40k dump) and SAX-parsed for constant memory.
+- The display list is computed once into a cached array; search is debounced; sort/search keys are precomputed on `Game`.
+- Archive entry listings are cached per session.
 
 ### Data storage
-- **UserDefaults** (`com.aalien.MAMEFrontend`) — small prefs only: paths, filters, sort, columns, favorites, last-played, window/inspector state.
-- **`~/Library/Application Support/MAMEFrontend/`** — `metaCacheV3.json` (the metadata cache; too large for UserDefaults) and the extracted `7zz` (if bundled). Delete `metaCacheV3.json` to force a metadata re-fetch.
+- **UserDefaults** — small prefs only: paths, filters, sort, columns, favorites, play counts, launch options, BIOS choices, window/inspector state.
+- **`~/Library/Application Support/MAMEFrontend/`** — `metaCacheV3.json` (metadata cache; far too large for UserDefaults) and the extracted `7zz`.
 
 ---
 
 ## Roadmap
 
-- [ ] **Cover-grid view** — thumbnail grid toggled against the table
-- [ ] **Verify action** — wrap `mame -verifyroms` / `-verifychd` to flag incomplete sets
-- [ ] More inspector tabs — `mameinfo.dat`, `command.dat`
+- [ ] **Verify / audit** — wrap `mame -verifyroms` / `-verifychd` to flag incomplete sets before launch
+- [ ] **Tile/grid view** — artwork thumbnails as an alternative to the table
+- [ ] Multi-select bulk actions (favorite, verify)
+- [ ] Players / controls metadata + filters
 - [ ] Software-list (console/computer) titles
-- [ ] "Hide mature" and "hide missing-disk" filters
+- [ ] Random game button
 
 ## Known limitations
 
-- Software lists (console/computer game titles) are not yet supported — arcade/system machines only.
-- Input remapping is done inside MAME (Tab menu), not in the frontend.
-- Console/computer detection keys on a machine having a `<softwarelist>`; a rare arcade system that ships one may be classified as a non-game.
-- Disk "present" checks the CHD filename exists, not its hash — a wrong-version CHD reads as present but is caught by launch feedback.
+- Software lists (console/computer titles) aren't supported — arcade/system machines only.
+- Input remapping happens inside MAME (Tab menu), not the frontend.
+- Console/computer detection keys on a machine having a `<softwarelist>`; a rare arcade system shipping one may be classified as a non-game.
+- Disk "present" checks the CHD *filename* exists, not its hash — a wrong-version CHD reads as present but is caught by launch feedback.
+- A launch is judged failed only if MAME exits non-zero within ~20 seconds.
 
 ---
 
 ## Credits & license
 
-- Not affiliated with or endorsed by the MAME project or MAMEdev. "MAME" is a trademark of its respective owners.
-- Metadata/artwork come from community projects — **History.dat**, **progetto-SNAPS**, and **catver.ini** authors. Please support them.
-- If you bundle `7zz`, note that **7-Zip** is licensed under the GNU LGPL (with BSD and unRAR-restricted portions); see [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
+- Not affiliated with or endorsed by MAMEdev. "MAME" is a trademark of its respective owners.
+- Metadata and artwork come from community projects — **History.dat**, **progetto-SNAPS**, **MASH's mameinfo.dat**, **command.dat**, and the **catver.ini** authors. Please support them.
+- If you bundle `7zz`: **7-Zip** is licensed under the GNU LGPL (with BSD and unRAR-restricted portions); see [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
 
-This project is released under the [MIT License](LICENSE) — see the file for details.
+Released under the [MIT License](LICENSE).
 
 ---
 

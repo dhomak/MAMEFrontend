@@ -4,14 +4,14 @@
 # Run on macOS with Xcode installed, from the project root.
 #
 #   ./package_alpha.sh
-#   VERSION=0.3.7 SCHEME=MAMEFrontend ./package_alpha.sh
+#   VERSION=0.3.8 SCHEME=MAMEFrontend ./package_alpha.sh
 #
 set -euo pipefail
 
 SCHEME="${SCHEME:-MAMEFrontend}"
 PROJECT="${PROJECT:-MAMEFrontend.xcodeproj}"
 CONFIG="Release"
-VERSION="${VERSION:-0.3.7}"
+VERSION="${VERSION:-0.3.8}"
 BUILD_DIR="build"
 
 echo "▶ Building $SCHEME ($CONFIG)…"

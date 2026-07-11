@@ -11,9 +11,11 @@ struct LibraryBackup: Codable {
     var playCounts: [String: Int] = [:]
     var lastPlayed: [String: Date] = [:]
     var launchOptions: [String: String] = [:]
+    var biosChoices: [String: String] = [:]
 
     var gameCount: Int {
-        Set(favorites + Array(playCounts.keys) + Array(launchOptions.keys)).count
+        Set(favorites + Array(playCounts.keys) + Array(launchOptions.keys)
+            + Array(biosChoices.keys)).count
     }
 }
 
@@ -66,6 +68,7 @@ final class LibraryModel {
     private var lastPlayedByName: [String: Date] = [:]
     private var playCountByName: [String: Int] = [:]
     private var launchOptionsByName: [String: String] = [:]
+    private var biosChoiceByName: [String: String] = [:]
     private var metaCache: [String: MachineMeta] = [:]
     private var zipEntryCache: [String: Set<String>] = [:]
 
@@ -312,7 +315,8 @@ final class LibraryModel {
         LibraryBackup(favorites: Array(favorites).sorted(),
                       playCounts: playCountByName,
                       lastPlayed: lastPlayedByName,
-                      launchOptions: launchOptionsByName)
+                      launchOptions: launchOptionsByName,
+                      biosChoices: biosChoiceByName)
     }
 
     func exportBackup(to url: URL) throws {
@@ -345,15 +349,18 @@ final class LibraryModel {
                 }
             }
             launchOptionsByName.merge(backup.launchOptions) { _, new in new }
+            biosChoiceByName.merge(backup.biosChoices) { _, new in new }
         } else {
             favorites = Set(backup.favorites)
             playCountByName = backup.playCounts
             lastPlayedByName = backup.lastPlayed
             launchOptionsByName = backup.launchOptions
+            biosChoiceByName = backup.biosChoices
         }
 
         saveUserData()
         UserDefaults.standard.set(launchOptionsByName, forKey: "launchOptions")
+        UserDefaults.standard.set(biosChoiceByName, forKey: "biosChoices")
         restampGames()
         recompute()
         return backup
@@ -389,6 +396,7 @@ final class LibraryModel {
         lastPlayedByName = [:]
         playCountByName = [:]
         launchOptionsByName = [:]
+        biosChoiceByName = [:]
         clearMetadataCache()
 
         if let domain = Bundle.main.bundleIdentifier {
@@ -566,6 +574,33 @@ final class LibraryModel {
 
     // MARK: - Actions
 
+    /// Selectable BIOS revisions for a game. Sets usually live on the parent /
+    /// BIOS machine (Neo-Geo clones inherit `neogeo`'s), so we walk up to it.
+    func biosOptions(for game: Game) -> [BiosSet] {
+        if let own = metaCache[game.shortName]?.biosSets, !own.isEmpty { return own }
+        // romof chain, then the clone's parent.
+        var seen = Set<String>()
+        var next = metaCache[game.shortName]?.biosParent ?? ""
+        while !next.isEmpty, !seen.contains(next) {
+            seen.insert(next)
+            if let sets = metaCache[next]?.biosSets, !sets.isEmpty { return sets }
+            next = metaCache[next]?.biosParent ?? ""
+        }
+        if let parent = game.parent, let sets = metaCache[parent]?.biosSets, !sets.isEmpty {
+            return sets
+        }
+        return []
+    }
+
+    /// The chosen BIOS for a game, or "" meaning "MAME's default".
+    func biosChoice(for id: String) -> String { biosChoiceByName[id] ?? "" }
+
+    @MainActor
+    func setBiosChoice(_ value: String, for id: String) {
+        if value.isEmpty { biosChoiceByName[id] = nil } else { biosChoiceByName[id] = value }
+        UserDefaults.standard.set(biosChoiceByName, forKey: "biosChoices")
+    }
+
     func launchOption(for id: String) -> String { launchOptionsByName[id] ?? "" }
 
     @MainActor
@@ -597,7 +632,11 @@ final class LibraryModel {
         applyPlayStats(game.shortName, lastPlayed: Date(), count: prevCount + 1)
 
         let runner = MAMERunner(binaryPath: mameBinaryPath, romPath: combinedRomPath)
-        let extra = MAMERunner.tokenize(launchOptionsByName[game.shortName] ?? "")
+        var extra: [String] = []
+        if let bios = biosChoiceByName[game.shortName], !bios.isEmpty {
+            extra += ["-bios", bios]
+        }
+        extra += MAMERunner.tokenize(launchOptionsByName[game.shortName] ?? "")
         let shortName = game.shortName
         let title = game.description
         Task {
@@ -638,6 +677,7 @@ final class LibraryModel {
             lastPlayedByName = decoded
         }
         launchOptionsByName = defaults.dictionary(forKey: "launchOptions") as? [String: String] ?? [:]
+        biosChoiceByName = defaults.dictionary(forKey: "biosChoices") as? [String: String] ?? [:]
         playCountByName = defaults.dictionary(forKey: "playCounts") as? [String: Int] ?? [:]
         loadMetaCache()
         showFavoritesOnly = defaults.bool(forKey: "fFavorites")

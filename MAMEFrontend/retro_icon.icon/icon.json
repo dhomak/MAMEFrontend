@@ -6,8 +6,18 @@
     {
       "layers" : [
         {
+          "image-name" : "mame frontend icon_3.png",
+          "name" : "mame frontend icon_3"
+        },
+        {
+          "hidden" : true,
           "image-name" : "retro_icon.png",
           "name" : "retro_icon"
+        },
+        {
+          "hidden" : false,
+          "image-name" : "mame_ico.png",
+          "name" : "mame_ico"
         }
       ],
       "shadow" : {

@@ -497,23 +497,49 @@ struct ContentView: View {
     @ViewBuilder
     private func launchOptionsSection(for game: Game) -> some View {
         DisclosureGroup(isExpanded: $launchOptionsExpanded) {
-            VStack(alignment: .leading, spacing: 4) {
-                TextField("e.g. -fullscreen -bios euro",
-                          text: optionsBinding(for: game.shortName))
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.caption, design: .monospaced))
-                Text("Extra MAME arguments, applied when you launch this game.")
+            VStack(alignment: .leading, spacing: 8) {
+                let biosSets = model.biosOptions(for: game)
+                if !biosSets.isEmpty {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("BIOS").font(.caption2).foregroundStyle(.secondary)
+                        Picker("", selection: biosBinding(for: game.shortName)) {
+                            Text("Default").tag("")
+                            ForEach(biosSets) { set in
+                                Text(set.isDefault ? "\(set.describedAs) (default)" : set.describedAs)
+                                    .tag(set.name)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Extra arguments").font(.caption2).foregroundStyle(.secondary)
+                    TextField("e.g. -fullscreen -nofilter",
+                              text: optionsBinding(for: game.shortName))
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.caption, design: .monospaced))
+                }
+
+                Text("Applied when you launch this game.")
                     .font(.caption2).foregroundStyle(.tertiary)
             }
             .padding(.top, 4)
         } label: {
             HStack(spacing: 6) {
                 Text("Launch options").font(.caption).foregroundStyle(.secondary)
-                if !model.launchOption(for: game.shortName).isEmpty {
+                if !model.launchOption(for: game.shortName).isEmpty
+                    || !model.biosChoice(for: game.shortName).isEmpty {
                     Circle().fill(Color.accentColor).frame(width: 5, height: 5)
                 }
             }
         }
+    }
+
+    private func biosBinding(for id: String) -> Binding<String> {
+        Binding(get: { model.biosChoice(for: id) },
+                set: { model.setBiosChoice($0, for: id) })
     }
 
     private func optionsBinding(for id: String) -> Binding<String> {

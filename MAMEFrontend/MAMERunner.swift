@@ -242,10 +242,23 @@ struct MachineMeta: Codable, Hashable {
     var isMechanical: Bool = false
     var isSystem: Bool = false   // has a <softwarelist> => computer / console
     var diskNames: [String] = [] // required (non-optional, dumped) CHD base names
+    /// Selectable BIOS revisions: (name, description). Empty when the machine
+    /// has no BIOS choice.
+    var biosSets: [BiosSet] = []
+    /// The BIOS this machine inherits its sets from (`romof`), if any.
+    var biosParent: String = ""
 
     /// Not an arcade game (BIOS, device, mechanical, or software-consuming system).
     var nonGame: Bool { isBios || isDevice || isMechanical || isSystem }
     var requiresDisk: Bool { !diskNames.isEmpty }
+}
+
+/// One selectable BIOS revision from `-listxml`.
+struct BiosSet: Codable, Hashable, Identifiable {
+    var name: String
+    var describedAs: String
+    var isDefault: Bool = false
+    var id: String { name }
 }
 
 /// Pulls `<year>`, `<manufacturer>`, and the `<driver status>` attribute out of
@@ -277,6 +290,15 @@ final class MachineMetaParser: NSObject, XMLParserDelegate {
             if attributeDict["isdevice"] == "yes" { current.isDevice = true }
             if attributeDict["runnable"] == "no" { current.isDevice = true }
             if attributeDict["ismechanical"] == "yes" { current.isMechanical = true }
+            if let romof = attributeDict["romof"] { current.biosParent = romof }
+        case "biosset":
+            if let name = attributeDict["name"] {
+                current.biosSets.append(
+                    BiosSet(name: name,
+                            describedAs: attributeDict["description"] ?? name,
+                            isDefault: attributeDict["default"] == "yes")
+                )
+            }
         case "softwarelist":
             current.isSystem = true
         case "disk":

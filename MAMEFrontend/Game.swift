@@ -27,6 +27,14 @@ struct Game: Identifiable, Hashable {
     var hasYear: Bool { year > 0 }
     /// Unknown status counts as working so nothing hides before metadata loads.
     var isWorking: Bool { status != "preliminary" }
+    /// catver.ini marks adult content with a "* Mature *" suffix on the genre.
+    var isMature: Bool { genre.lowercased().contains("* mature") }
+
+    /// The genre without catver's "* Mature *" marker, for display.
+    var displayGenre: String {
+        guard let marker = genre.range(of: "* Mature", options: .caseInsensitive) else { return genre }
+        return String(genre[..<marker.lowerBound]).trimmingCharacters(in: .whitespaces)
+    }
 
     var id: String { shortName }
 

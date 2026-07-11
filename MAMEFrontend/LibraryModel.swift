@@ -1,6 +1,22 @@
 import Foundation
 import Observation
 
+/// The user-curated state worth preserving across reinstalls: favorites, play
+/// stats, and per-game launch options. Paths and the metadata cache are
+/// deliberately excluded (machine-specific / regenerable).
+struct LibraryBackup: Codable {
+    var version = 1
+    var exportedAt = Date()
+    var favorites: [String] = []
+    var playCounts: [String: Int] = [:]
+    var lastPlayed: [String: Date] = [:]
+    var launchOptions: [String: String] = [:]
+
+    var gameCount: Int {
+        Set(favorites + Array(playCounts.keys) + Array(launchOptions.keys)).count
+    }
+}
+
 /// A failed game launch, surfaced to the user as an alert.
 struct LaunchFailure: Identifiable {
     let id = UUID()
@@ -41,6 +57,7 @@ final class LibraryModel {
     var hideClones = false
     var hideNonWorking = false
     var hideNonGames = false
+    var hideMature = false
     var genreFilter: String?
     var sortOrder: [KeyPathComparator<Game>] = [KeyPathComparator(\.sortTitle)]
 
@@ -112,6 +129,7 @@ final class LibraryModel {
         if hideClones        { result = result.filter { !$0.isClone } }
         if hideNonWorking    { result = result.filter { $0.isWorking } }
         if hideNonGames      { result = result.filter { !$0.isNonGame } }
+        if hideMature        { result = result.filter { !$0.isMature } }
         if let category = genreFilter { result = result.filter { $0.category == category } }
         if !appliedSearch.isEmpty {
             if let years = Self.parseYearQuery(appliedSearch) {
@@ -138,6 +156,7 @@ final class LibraryModel {
         hideClones = false
         hideNonWorking = false
         hideNonGames = false
+        hideMature = false
         genreFilter = nil
         searchText = ""
         appliedSearch = ""
@@ -286,6 +305,113 @@ final class LibraryModel {
     /// The best on-disk item to reveal for a game: its ROM archive, or its CHD
     /// folder, searched across the ROM and CHD paths (falling back to the parent
     /// set for clones that live inside a merged parent archive).
+    // MARK: - Backup / restore
+
+    /// Snapshot of the user-curated state.
+    func makeBackup() -> LibraryBackup {
+        LibraryBackup(favorites: Array(favorites).sorted(),
+                      playCounts: playCountByName,
+                      lastPlayed: lastPlayedByName,
+                      launchOptions: launchOptionsByName)
+    }
+
+    func exportBackup(to url: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(makeBackup())
+        try data.write(to: url, options: .atomic)
+    }
+
+    /// Restores from a backup file. `merge` keeps existing entries and adds/wins
+    /// on conflicts by taking the larger play count and later play date; when
+    /// false, the backup replaces current state outright.
+    @MainActor
+    func importBackup(from url: URL, merge: Bool) throws -> LibraryBackup {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let backup = try decoder.decode(LibraryBackup.self, from: Data(contentsOf: url))
+
+        if merge {
+            favorites.formUnion(backup.favorites)
+            for (name, count) in backup.playCounts {
+                playCountByName[name] = max(playCountByName[name] ?? 0, count)
+            }
+            for (name, date) in backup.lastPlayed {
+                if let existing = lastPlayedByName[name] {
+                    lastPlayedByName[name] = max(existing, date)
+                } else {
+                    lastPlayedByName[name] = date
+                }
+            }
+            launchOptionsByName.merge(backup.launchOptions) { _, new in new }
+        } else {
+            favorites = Set(backup.favorites)
+            playCountByName = backup.playCounts
+            lastPlayedByName = backup.lastPlayed
+            launchOptionsByName = backup.launchOptions
+        }
+
+        saveUserData()
+        UserDefaults.standard.set(launchOptionsByName, forKey: "launchOptions")
+        restampGames()
+        recompute()
+        return backup
+    }
+
+    /// Re-applies favorites/play stats onto the loaded rows after an import.
+    @MainActor
+    private func restampGames() {
+        func stamped(_ g: Game) -> Game {
+            var n = g
+            n.playCount = playCountByName[g.shortName] ?? 0
+            n.lastPlayed = lastPlayedByName[g.shortName] ?? .distantPast
+            return n
+        }
+        games = games.map(stamped)
+        displayGames = displayGames.map(stamped)
+        for (name, g) in gamesByID { gamesByID[name] = stamped(g) }
+    }
+
+    /// Deletes the on-disk metadata cache so the next reload re-fetches
+    /// everything from `-listxml`.
+    @MainActor
+    func clearMetadataCache() {
+        metaCache = [:]
+        if let url = metaCacheURL { try? FileManager.default.removeItem(at: url) }
+    }
+
+    /// Wipes every stored preference and user-curated value: favorites, play
+    /// counts, launch options, filters, paths, and window/column state.
+    @MainActor
+    func resetAllSettings() {
+        favorites = []
+        lastPlayedByName = [:]
+        playCountByName = [:]
+        launchOptionsByName = [:]
+        clearMetadataCache()
+
+        if let domain = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: domain)
+        }
+
+        games = []
+        displayGames = []
+        gamesByID = [:]
+        categories = []
+        infoIndexes = [:]
+        infoErrors = [:]
+        showFavoritesOnly = false
+        hideClones = false
+        hideNonWorking = false
+        hideNonGames = false
+        hideMature = false
+        genreFilter = nil
+        searchText = ""
+        appliedSearch = ""
+        errorMessage = nil
+    }
+
     func fileURL(for game: Game) -> URL? {
         let fm = FileManager.default
         let paths = [romPath, chdPath].filter { !$0.isEmpty }
@@ -518,6 +644,7 @@ final class LibraryModel {
         hideClones = defaults.bool(forKey: "fHideClones")
         hideNonWorking = defaults.bool(forKey: "fHideNonWorking")
         hideNonGames = defaults.bool(forKey: "fHideNonGames")
+        hideMature = defaults.bool(forKey: "fHideMature")
         let g = defaults.string(forKey: "fGenre") ?? ""
         genreFilter = g.isEmpty ? nil : g
     }
@@ -535,6 +662,7 @@ final class LibraryModel {
         d.set(hideClones, forKey: "fHideClones")
         d.set(hideNonWorking, forKey: "fHideNonWorking")
         d.set(hideNonGames, forKey: "fHideNonGames")
+        d.set(hideMature, forKey: "fHideMature")
         d.set(genreFilter ?? "", forKey: "fGenre")
     }
 

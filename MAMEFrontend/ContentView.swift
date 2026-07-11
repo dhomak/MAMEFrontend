@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Combine
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @State private var model = LibraryModel()
@@ -34,7 +35,13 @@ struct ContentView: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var columnCustomization = TableColumnCustomization<Game>()
     @State private var window: NSWindow?
+    @State private var backupMessage: String?
     @AppStorage("launchOptionsExpanded") private var launchOptionsExpanded = false
+    @AppStorage("appearance") private var appearanceRaw = Appearance.system.rawValue
+
+    private var preferredScheme: ColorScheme? {
+        (Appearance(rawValue: appearanceRaw) ?? .system).colorScheme
+    }
 
     private var selectedGame: Game? {
         guard let id = selection else { return nil }
@@ -42,11 +49,13 @@ struct ContentView: View {
     }
 
     private var anyFilterActive: Bool {
-        model.showFavoritesOnly || model.hideClones || model.hideNonWorking || model.hideNonGames
+        model.showFavoritesOnly || model.hideClones || model.hideNonWorking
+            || model.hideNonGames || model.hideMature
     }
 
     var body: some View {
         withChangeHandlers
+            .preferredColorScheme(preferredScheme)
     }
 
     private var presentedView: some View {
@@ -69,7 +78,19 @@ struct ContentView: View {
                          mameinfoPath: $mameinfoPath,
                          commandPath: $commandPath,
                          catverPath: $catverPath,
-                         artworkPath: $artworkPath) {
+                         artworkPath: $artworkPath,
+                         appearanceRaw: $appearanceRaw,
+                         onClearCache: {
+                             model.clearMetadataCache()
+                             syncAndReload()
+                         },
+                         onResetAll: {
+                             model.resetAllSettings()
+                             resetLocalUIState()
+                         },
+                         onExport: { exportBackup() },
+                         onImport: { merge in importBackup(merge: merge) },
+                         backupMessage: $backupMessage) {
                 syncAndReload()
             }
         }
@@ -123,6 +144,7 @@ struct ContentView: View {
             .onChange(of: model.hideClones) { model.filtersChanged() }
             .onChange(of: model.hideNonWorking) { model.filtersChanged() }
             .onChange(of: model.hideNonGames) { model.filtersChanged() }
+        .onChange(of: model.hideMature) { model.filtersChanged() }
             .onChange(of: model.genreFilter) { model.filtersChanged() }
     }
 
@@ -167,8 +189,42 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 gameTable
                 if model.isEnriching { enrichBanner }
+                statusBar
             }
         }
+    }
+
+    private var statusBar: some View {
+        HStack(spacing: 6) {
+            Text(countText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if anyFilterActive || !model.searchText.isEmpty || model.genreFilter != nil {
+                Button("Clear") { model.clearFilters() }
+                    .buttonStyle(.link)
+                    .font(.caption)
+            }
+            Spacer()
+            if model.favorites.count > 0 {
+                Label("\(model.favorites.count)", systemImage: "star.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .labelStyle(.titleAndIcon)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .background(.bar)
+    }
+
+    private var countText: String {
+        let shown = model.displayGames.count
+        let total = model.games.count
+        let f = NumberFormatter(); f.numberStyle = .decimal
+        let s1 = f.string(from: NSNumber(value: shown)) ?? "\(shown)"
+        let s2 = f.string(from: NSNumber(value: total)) ?? "\(total)"
+        if shown == total { return "\(s2) games" }
+        return "\(s1) of \(s2) games"
     }
 
     private var enrichBanner: some View {
@@ -226,7 +282,7 @@ struct ContentView: View {
             .customizationID("game")
 
             TableColumn("Genre", value: \.genre) { game in
-                Text(game.genre.isEmpty ? "—" : game.genre)
+                Text(game.genre.isEmpty ? "—" : game.displayGenre)
                     .foregroundStyle(game.genre.isEmpty ? .tertiary : .secondary)
                     .help(game.genre)
             }
@@ -389,7 +445,16 @@ struct ContentView: View {
                 Text(game.manufacturer).font(.caption).foregroundStyle(.secondary)
             }
             if !game.genre.isEmpty {
-                Text(game.genre).font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 5) {
+                    Text(game.displayGenre).font(.caption).foregroundStyle(.secondary)
+                    if game.isMature {
+                        Text("mature")
+                            .font(.caption2)
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(Color.secondary.opacity(0.15), in: Capsule())
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
             HStack(spacing: 6) {
@@ -487,12 +552,18 @@ struct ContentView: View {
                         )
                 } else {
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.secondary.opacity(0.08))
-                        .frame(height: 90)
+                        .fill(Color.secondary.opacity(0.10))
+                        .aspectRatio(4.0 / 3.0, contentMode: .fit)
+                        .frame(maxWidth: .infinity)
                         .overlay(
-                            Text("No \(artworkKind.label.lowercased()) artwork")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
+                            VStack(spacing: 4) {
+                                Image(systemName: "photo")
+                                    .imageScale(.large)
+                                    .foregroundStyle(.tertiary)
+                                Text("No \(artworkKind.label.lowercased()) artwork")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
                         )
                 }
             }
@@ -559,6 +630,7 @@ struct ContentView: View {
                 Toggle("Hide clones", isOn: $model.hideClones)
                 Toggle("Hide non-working", isOn: $model.hideNonWorking)
                 Toggle("Hide non-games", isOn: $model.hideNonGames)
+                Toggle("Hide mature", isOn: $model.hideMature)
             } label: {
                 Label("Filter", systemImage: anyFilterActive
                       ? "line.3.horizontal.decrease.circle.fill"
@@ -644,6 +716,49 @@ struct ContentView: View {
         return nil
     }
 
+    private func exportBackup() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "MAMEFrontend-backup.json"
+        panel.allowedContentTypes = [.json]
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try model.exportBackup(to: url)
+            backupMessage = "Exported \(model.makeBackup().gameCount) games' data."
+        } catch {
+            backupMessage = "Export failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func importBackup(merge: Bool) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let backup = try model.importBackup(from: url, merge: merge)
+            backupMessage = "\(merge ? "Merged" : "Restored") \(backup.gameCount) games' data."
+        } catch {
+            backupMessage = "Import failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func resetLocalUIState() {
+        mameBinaryPath = ""; romPath = ""; chdPath = ""
+        historyPath = ""; mameinfoPath = ""; commandPath = ""
+        catverPath = ""; artworkPath = ""
+        artworkKindRaw = ArtworkKind.snapshot.rawValue
+        infoTabRaw = InfoTab.history.rawValue
+        appearanceRaw = Appearance.system.rawValue
+        sortField = "title"; sortAscending = true
+        columnsData = ""; lastSelectionID = ""
+        showInspector = true; launchOptionsExpanded = false
+        selection = nil
+        artwork = nil
+    }
+
     private func revealInFinder(_ game: Game) {
         guard let url = model.fileURL(for: game) else { return }
         NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -702,30 +817,36 @@ struct SettingsView: View {
     @Binding var commandPath: String
     @Binding var catverPath: String
     @Binding var artworkPath: String
+    @Binding var appearanceRaw: String
+    var onClearCache: () -> Void
+    var onResetAll: () -> Void
+    var onExport: () -> Void
+    var onImport: (Bool) -> Void
+    @Binding var backupMessage: String?
     var onSave: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("settingsTab") private var selectedTab = "general"
+    @State private var confirmingReset = false
+    @State private var cacheCleared = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Settings").font(.title2).bold()
 
-            pathRow(title: "MAME binary", text: $mameBinaryPath,
-                    chooseDirectory: false, prompt: "/opt/homebrew/bin/mame")
-            pathRow(title: "ROM path", text: $romPath,
-                    chooseDirectory: true, prompt: "~/roms")
-            pathRow(title: "CHD / extra ROM path (optional)", text: $chdPath,
-                    chooseDirectory: true, prompt: "~/chds")
-            pathRow(title: "History file (optional)", text: $historyPath,
-                    chooseDirectory: false, prompt: "~/history.xml or history.dat")
-            pathRow(title: "mameinfo.dat (optional)", text: $mameinfoPath,
-                    chooseDirectory: false, prompt: "~/mameinfo.dat")
-            pathRow(title: "command.dat (optional)", text: $commandPath,
-                    chooseDirectory: false, prompt: "~/command.dat")
-            pathRow(title: "catver.ini (optional)", text: $catverPath,
-                    chooseDirectory: false, prompt: "~/catver.ini")
-            pathRow(title: "Artwork folder (optional)", text: $artworkPath,
-                    chooseDirectory: true, prompt: "~/mame-artwork")
+            Picker("", selection: $selectedTab) {
+                Text("General").tag("general")
+                Text("Metadata").tag("metadata")
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+
+            Group {
+                if selectedTab == "general" { generalTab } else { metadataTab }
+            }
+            .frame(minHeight: 300, maxHeight: 420, alignment: .top)
+
+            Divider()
 
             HStack {
                 Spacer()
@@ -735,8 +856,116 @@ struct SettingsView: View {
             }
         }
         .padding(20)
-        .frame(width: 540)
+        .frame(width: 560)
     }
+
+    // MARK: - Tabs
+
+    @ViewBuilder
+    private var generalTab: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                pathRow(title: "MAME binary", text: $mameBinaryPath,
+                        chooseDirectory: false, prompt: "/opt/homebrew/bin/mame")
+                pathRow(title: "ROM path", text: $romPath,
+                        chooseDirectory: true, prompt: "~/roms")
+                pathRow(title: "CHD / extra ROM path (optional)", text: $chdPath,
+                        chooseDirectory: true, prompt: "~/chds")
+
+                Divider().padding(.vertical, 2)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Appearance").font(.headline)
+                    Picker("", selection: $appearanceRaw) {
+                        ForEach(Appearance.allCases) { option in
+                            Text(option.label).tag(option.rawValue)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 280)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Divider().padding(.vertical, 2)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Backup").font(.headline)
+                    HStack(spacing: 8) {
+                        Button("Export…") { onExport() }
+                        Button("Import (merge)…") { onImport(true) }
+                        Button("Import (replace)…") { onImport(false) }
+                    }
+                    if let backupMessage {
+                        Text(backupMessage)
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Text("Saves favorites, play counts, and launch options to a JSON file.")
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Divider().padding(.vertical, 2)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Maintenance").font(.headline)
+                    HStack(spacing: 8) {
+                        Button("Clear metadata cache") {
+                            onClearCache()
+                            cacheCleared = true
+                        }
+                        if cacheCleared {
+                            Text("Cleared — reloading.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Reset all settings…", role: .destructive) {
+                            confirmingReset = true
+                        }
+                    }
+                    Text("Clearing the cache re-reads game metadata from MAME on the next reload.")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.trailing, 2)
+        }
+        .confirmationDialog("Reset all settings?",
+                            isPresented: $confirmingReset,
+                            titleVisibility: .visible) {
+            Button("Reset Everything", role: .destructive) {
+                onResetAll()
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This erases your paths, favorites, play counts, launch options, and filters. It cannot be undone.")
+        }
+    }
+
+    @ViewBuilder
+    private var metadataTab: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                pathRow(title: "History file", text: $historyPath,
+                        chooseDirectory: false, prompt: "~/history.xml or history.dat")
+                pathRow(title: "mameinfo.dat", text: $mameinfoPath,
+                        chooseDirectory: false, prompt: "~/mameinfo.dat")
+                pathRow(title: "command.dat", text: $commandPath,
+                        chooseDirectory: false, prompt: "~/command.dat")
+                pathRow(title: "catver.ini", text: $catverPath,
+                        chooseDirectory: false, prompt: "~/catver.ini")
+                pathRow(title: "Artwork folder", text: $artworkPath,
+                        chooseDirectory: true, prompt: "~/mame-artwork")
+                Text("All optional — each unlocks a feature (trivia, genres, artwork).")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    // MARK: - Row
 
     @ViewBuilder
     private func pathRow(title: String, text: Binding<String>,

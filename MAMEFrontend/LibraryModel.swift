@@ -26,6 +26,9 @@ final class LibraryModel {
     private(set) var categories: [String] = []     // distinct genre categories (cached)
     private(set) var isLoading = false
     private(set) var errorMessage: String?
+    private(set) var enrichDone = 0
+    private(set) var enrichTotal = 0
+    var isEnriching: Bool { enrichTotal > 0 && enrichDone < enrichTotal }
     var launchError: LaunchFailure?
 
     // Reference-text state, keyed by tab
@@ -72,6 +75,34 @@ final class LibraryModel {
 
     // MARK: - Display list
 
+    /// A year query: exact ("1996"), decade ("199x" / "1990s"), or range
+    /// ("1990-1995"). Nil when the text isn't year-like, in which case the
+    /// search is a plain text match.
+    static func parseYearQuery(_ text: String) -> ClosedRange<Int>? {
+        let q = text.trimmingCharacters(in: .whitespaces).lowercased()
+
+        // Range: 1990-1995
+        let parts = q.split(separator: "-", maxSplits: 1).map(String.init)
+        if parts.count == 2,
+           let lo = Int(parts[0]), let hi = Int(parts[1]),
+           isYear(lo), isYear(hi), lo <= hi {
+            return lo...hi
+        }
+        // Decade: 199x / 1990s
+        if q.count == 4, q.hasSuffix("x"), let decade = Int(q.dropLast()) {
+            let base = decade * 10
+            if isYear(base) { return base...(base + 9) }
+        }
+        if q.count == 5, q.hasSuffix("s"), let base = Int(q.dropLast()), isYear(base), base % 10 == 0 {
+            return base...(base + 9)
+        }
+        // Exact: 1996
+        if q.count == 4, let year = Int(q), isYear(year) { return year...year }
+        return nil
+    }
+
+    private static func isYear(_ value: Int) -> Bool { value >= 1970 && value <= 2035 }
+
     /// Rebuilds `displayGames` from the current filters + sort. Called only when
     /// something actually changes — never per keystroke (search is debounced).
     @MainActor
@@ -83,8 +114,12 @@ final class LibraryModel {
         if hideNonGames      { result = result.filter { !$0.isNonGame } }
         if let category = genreFilter { result = result.filter { $0.category == category } }
         if !appliedSearch.isEmpty {
-            let needle = appliedSearch.lowercased()
-            result = result.filter { $0.searchKey.contains(needle) }
+            if let years = Self.parseYearQuery(appliedSearch) {
+                result = result.filter { years.contains($0.year) }
+            } else {
+                let needle = appliedSearch.lowercased()
+                result = result.filter { $0.searchKey.contains(needle) }
+            }
         }
         result.sort(using: sortOrder)
         displayGames = result
@@ -194,57 +229,87 @@ final class LibraryModel {
     private func enrichMeta(for names: [String], runner: MAMERunner) async {
         let chunkSize = 300
         var index = 0
+        enrichTotal = names.count
+        enrichDone = 0
+        defer { enrichTotal = 0; enrichDone = 0 }
+
         while index < names.count {
             let chunk = Array(names[index..<min(index + chunkSize, names.count)])
             index += chunkSize
             do {
                 let fetched = try await runner.meta(for: chunk)
-                guard !fetched.isEmpty else { continue }
-                metaCache.merge(fetched) { _, new in new }
-                applyMeta(fetched)
+                if !fetched.isEmpty {
+                    metaCache.merge(fetched) { _, new in new }
+                    applyMeta(fetched)
+                }
             } catch {
                 // Non-fatal.
             }
+            enrichDone = min(index, names.count)
         }
         saveMetaCache()
     }
 
-    /// Folds fetched metadata into games / displayGames / index in place.
+    /// Folds fetched metadata into games / displayGames / index. Games are
+    /// rebuilt through the initializer (not mutated) so precomputed keys —
+    /// notably `searchKey`, which includes the manufacturer — are regenerated.
     @MainActor
     private func applyMeta(_ fetched: [String: MachineMeta]) {
         func updated(_ g: Game) -> Game {
             guard let m = fetched[g.shortName] else { return g }
-            var n = g
-            if m.year > 0 { n.year = m.year }
-            if !m.manufacturer.isEmpty { n.manufacturer = m.manufacturer }
-            if !m.status.isEmpty { n.status = m.status }
-            n.isNonGame = m.nonGame
-            n.requiresDisk = m.requiresDisk
-            n.diskPresent = m.requiresDisk
-                ? isDiskPresent(shortName: n.shortName, parent: n.parent, diskNames: m.diskNames)
-                : false
-            return n
+            return Game(shortName: g.shortName,
+                        description: g.description,
+                        isUnknown: g.isUnknown,
+                        parent: g.parent,
+                        lastPlayed: g.lastPlayed,
+                        playCount: g.playCount,
+                        year: m.year > 0 ? m.year : g.year,
+                        genre: g.genre,
+                        manufacturer: m.manufacturer.isEmpty ? g.manufacturer : m.manufacturer,
+                        status: m.status.isEmpty ? g.status : m.status,
+                        isNonGame: m.nonGame,
+                        requiresDisk: m.requiresDisk,
+                        diskPresent: m.requiresDisk
+                            ? isDiskPresent(shortName: g.shortName, parent: g.parent,
+                                            diskNames: m.diskNames)
+                            : false)
         }
         games = games.map(updated)
         displayGames = displayGames.map(updated)
-        for (name, m) in fetched {
-            if var g = gamesByID[name] {
-                if m.year > 0 { g.year = m.year }
-                if !m.manufacturer.isEmpty { g.manufacturer = m.manufacturer }
-                if !m.status.isEmpty { g.status = m.status }
-                g.isNonGame = m.nonGame
-                g.requiresDisk = m.requiresDisk
-                g.diskPresent = m.requiresDisk
-                    ? isDiskPresent(shortName: name, parent: g.parent, diskNames: m.diskNames)
-                    : false
-                gamesByID[name] = g
-            }
+        for name in fetched.keys {
+            if let g = gamesByID[name] { gamesByID[name] = updated(g) }
         }
         // Newly-learned kinds/statuses may change a filtered view.
         if hideNonWorking || hideNonGames { recompute() }
     }
 
-    /// True if every required disk is found at `<path>/<machine or parent>/<disk>.chd`.
+    /// The best on-disk item to reveal for a game: its ROM archive, or its CHD
+    /// folder, searched across the ROM and CHD paths (falling back to the parent
+    /// set for clones that live inside a merged parent archive).
+    func fileURL(for game: Game) -> URL? {
+        let fm = FileManager.default
+        let paths = [romPath, chdPath].filter { !$0.isEmpty }
+        let names = [game.shortName] + (game.parent.map { [$0] } ?? [])
+
+        for path in paths {
+            let base = URL(fileURLWithPath: path)
+            for name in names {
+                // A CHD folder (kinst/kinst.chd) …
+                let dir = base.appendingPathComponent(name)
+                var isDir: ObjCBool = false
+                if fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue {
+                    return dir
+                }
+                // … or a ROM archive.
+                for ext in ["zip", "7z"] {
+                    let archive = base.appendingPathComponent("\(name).\(ext)")
+                    if fm.fileExists(atPath: archive.path) { return archive }
+                }
+            }
+        }
+        return nil
+    }
+
     private func isDiskPresent(shortName: String, parent: String?, diskNames: [String]) -> Bool {
         guard !diskNames.isEmpty else { return true }
         let paths = [romPath, chdPath].filter { !$0.isEmpty }

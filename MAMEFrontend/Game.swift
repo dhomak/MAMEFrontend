@@ -58,7 +58,7 @@ struct Game: Identifiable, Hashable {
         self.diskPresent = diskPresent
 
         self.sortTitle = description.lowercased()
-        self.searchKey = (description + " " + shortName).lowercased()
+        self.searchKey = (description + " " + shortName + " " + manufacturer).lowercased()
         if genre.isEmpty {
             self.category = ""
         } else {

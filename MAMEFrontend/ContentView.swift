@@ -54,7 +54,7 @@ struct ContentView: View {
             content
                 .navigationTitle("MAME")
                 .toolbar { toolbarContent }
-                .searchable(text: $model.searchText, prompt: "Search games")
+                .searchable(text: $model.searchText, prompt: "Name, maker, or year (1996, 199x, 1990-1995)")
                 .inspector(isPresented: $showInspector) { detailPanel }
         }
         .background(WindowAccessor { win in
@@ -164,8 +164,27 @@ struct ContentView: View {
                 Text("No ROM archives matched machines this MAME build recognizes in \(romPath).")
             }
         } else {
-            gameTable
+            VStack(spacing: 0) {
+                gameTable
+                if model.isEnriching { enrichBanner }
+            }
         }
+    }
+
+    private var enrichBanner: some View {
+        HStack(spacing: 8) {
+            ProgressView(value: Double(model.enrichDone),
+                         total: Double(max(model.enrichTotal, 1)))
+                .progressViewStyle(.linear)
+                .frame(maxWidth: 160)
+            Text("Loading metadata… \(model.enrichDone) / \(model.enrichTotal)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.bar)
     }
 
     private var gameTable: some View {
@@ -187,6 +206,7 @@ struct ContentView: View {
                 HStack(spacing: 6) {
                     statusDot(game.status)
                     Text(game.description)
+                        .help(game.description)
                     if game.isClone { cloneBadge }
                     if game.requiresDisk {
                         Image(systemName: "internaldrive")
@@ -208,6 +228,7 @@ struct ContentView: View {
             TableColumn("Genre", value: \.genre) { game in
                 Text(game.genre.isEmpty ? "—" : game.genre)
                     .foregroundStyle(game.genre.isEmpty ? .tertiary : .secondary)
+                    .help(game.genre)
             }
             .width(min: 120, ideal: 180)
             .customizationID("genre")
@@ -215,6 +236,7 @@ struct ContentView: View {
             TableColumn("Manufacturer", value: \.manufacturer) { game in
                 Text(game.manufacturer.isEmpty ? "—" : game.manufacturer)
                     .foregroundStyle(game.manufacturer.isEmpty ? .tertiary : .secondary)
+                    .help(game.manufacturer)
             }
             .width(min: 100, ideal: 150)
             .customizationID("manufacturer")
@@ -261,6 +283,11 @@ struct ContentView: View {
                 Button(model.isFavorite(game) ? "Remove from Favorites" : "Add to Favorites") {
                     model.toggleFavorite(game)
                 }
+                Divider()
+                Button("Reveal in Finder") { revealInFinder(game) }
+                    .disabled(model.fileURL(for: game) == nil)
+                Button("Copy Short Name") { copyToPasteboard(game.shortName) }
+                Button("Copy Name") { copyToPasteboard(game.description) }
             }
         } primaryAction: { ids in
             if let id = ids.first, let game = model.game(id: id) {
@@ -615,6 +642,17 @@ struct ContentView: View {
             if let found = firstSearchField(in: sub) { return found }
         }
         return nil
+    }
+
+    private func revealInFinder(_ game: Game) {
+        guard let url = model.fileURL(for: game) else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    private func copyToPasteboard(_ string: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(string, forType: .string)
     }
 
     private func syncConfig() {

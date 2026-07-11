@@ -15,6 +15,8 @@ final class LibraryModel {
     var romPath = ""
     var chdPath = ""
     var historyPath = ""
+    var mameinfoPath = ""
+    var commandPath = ""
     var catverPath = ""
     var artworkPath = ""
 
@@ -26,9 +28,9 @@ final class LibraryModel {
     private(set) var errorMessage: String?
     var launchError: LaunchFailure?
 
-    // History state
-    private(set) var historyIndex: [String: String] = [:]
-    private(set) var historyError: String?
+    // Reference-text state, keyed by tab
+    private(set) var infoIndexes: [InfoTab: [String: String]] = [:]
+    private(set) var infoErrors: [InfoTab: String] = [:]
 
     // View filters (mutated by the view; view calls recompute() on change)
     var searchText = ""
@@ -64,7 +66,6 @@ final class LibraryModel {
     private var combinedRomPath: String {
         chdPath.isEmpty ? romPath : "\(romPath);\(chdPath)"
     }
-    var historyConfigured: Bool { !historyPath.isEmpty }
     var artworkConfigured: Bool { !artworkPath.isEmpty }
 
     func game(id: String) -> Game? { gamesByID[id] }
@@ -264,25 +265,46 @@ final class LibraryModel {
         return true
     }
 
-    @MainActor
-    func loadHistory() async {
-        let path = historyPath
-        guard !path.isEmpty else { historyIndex = [:]; historyError = nil; return }
-        do {
-            let idx = try await Task.detached { try HistoryStore.index(fromFileAt: path) }.value
-            historyIndex = idx
-            historyError = idx.isEmpty ? "No entries found in the history file." : nil
-        } catch {
-            historyIndex = [:]
-            historyError = error.localizedDescription
+    func path(for tab: InfoTab) -> String {
+        switch tab {
+        case .history:  return historyPath
+        case .mameinfo: return mameinfoPath
+        case .command:  return commandPath
         }
     }
 
-    func history(for game: Game) -> String? {
-        if let text = historyIndex[game.shortName] { return text }
-        if let parent = game.parent { return historyIndex[parent] }
+    func isConfigured(_ tab: InfoTab) -> Bool { !path(for: tab).isEmpty }
+
+    /// Loads and indexes every configured reference file, off the main thread.
+    @MainActor
+    func loadInfoFiles() async {
+        for tab in InfoTab.allCases {
+            let path = self.path(for: tab)
+            guard !path.isEmpty else {
+                infoIndexes[tab] = [:]
+                infoErrors[tab] = nil
+                continue
+            }
+            do {
+                let idx = try await Task.detached { try HistoryStore.index(fromFileAt: path) }.value
+                infoIndexes[tab] = idx
+                infoErrors[tab] = idx.isEmpty ? "No entries found in \(tab.fileHint)." : nil
+            } catch {
+                infoIndexes[tab] = [:]
+                infoErrors[tab] = error.localizedDescription
+            }
+        }
+    }
+
+    /// Text for a game from a given source, falling back to its parent set.
+    func info(_ tab: InfoTab, for game: Game) -> String? {
+        guard let index = infoIndexes[tab] else { return nil }
+        if let text = index[game.shortName] { return text }
+        if let parent = game.parent { return index[parent] }
         return nil
     }
+
+    func infoError(_ tab: InfoTab) -> String? { infoErrors[tab] ?? nil }
 
     // MARK: - Artwork
 

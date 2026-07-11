@@ -10,6 +10,8 @@ struct ContentView: View {
     @AppStorage("romPath") private var romPath = ""
     @AppStorage("chdPath") private var chdPath = ""
     @AppStorage("historyPath") private var historyPath = ""
+    @AppStorage("mameinfoPath") private var mameinfoPath = ""
+    @AppStorage("commandPath") private var commandPath = ""
     @AppStorage("catverPath") private var catverPath = ""
     @AppStorage("artworkPath") private var artworkPath = ""
 
@@ -20,6 +22,9 @@ struct ContentView: View {
     @AppStorage("sortAscending") private var sortAscending = true
     @AppStorage("columnsData") private var columnsData = ""
     @AppStorage("artworkKind") private var artworkKindRaw = ArtworkKind.snapshot.rawValue
+    @AppStorage("infoTab") private var infoTabRaw = InfoTab.history.rawValue
+
+    private var infoTab: InfoTab { InfoTab(rawValue: infoTabRaw) ?? .history }
 
     private var artworkKind: ArtworkKind { ArtworkKind(rawValue: artworkKindRaw) ?? .snapshot }
 
@@ -60,6 +65,8 @@ struct ContentView: View {
                          romPath: $romPath,
                          chdPath: $chdPath,
                          historyPath: $historyPath,
+                         mameinfoPath: $mameinfoPath,
+                         commandPath: $commandPath,
                          catverPath: $catverPath,
                          artworkPath: $artworkPath) {
                 syncAndReload()
@@ -91,7 +98,7 @@ struct ContentView: View {
                 syncConfig()
                 if model.isConfigured { await model.reload() }
                 restoreSelection()
-                await model.loadHistory()
+                await model.loadInfoFiles()
             }
             .task(id: [selection ?? "", artworkPath, artworkKindRaw]) {
                 artwork = nil
@@ -344,7 +351,7 @@ struct ContentView: View {
                         detailHeader(for: game)
                         launchOptionsSection(for: game)
                         Divider()
-                        historyBody(for: game)
+                        infoBody(for: game)
                     }
                     .padding()
                 }
@@ -399,23 +406,33 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func historyBody(for game: Game) -> some View {
-        if let text = model.history(for: game) {
-            Text(text)
-                .font(.callout)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else if !model.historyConfigured {
-            Text("Set a history file in Settings to show history and trivia.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        } else if let error = model.historyError {
-            Text(error).font(.caption).foregroundStyle(.secondary)
-        } else {
-            Text("No history entry for \(game.shortName).")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+    private func infoBody(for game: Game) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("", selection: $infoTabRaw) {
+                ForEach(InfoTab.allCases) { tab in
+                    Text(tab.label).tag(tab.rawValue)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+
+            if let text = model.info(infoTab, for: game) {
+                Text(text)
+                    .font(.callout)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if !model.isConfigured(infoTab) {
+                Text("Set \(infoTab.fileHint) in Settings to show this.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if let error = model.infoError(infoTab) {
+                Text(error).font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text("No \(infoTab.label.lowercased()) entry for \(game.shortName).")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -542,6 +559,8 @@ struct ContentView: View {
         model.romPath = romPath
         model.chdPath = chdPath
         model.historyPath = historyPath
+        model.mameinfoPath = mameinfoPath
+        model.commandPath = commandPath
         model.catverPath = catverPath
         model.artworkPath = artworkPath
         model.sortOrder = makeSortOrder(field: sortField, ascending: sortAscending)
@@ -552,7 +571,7 @@ struct ContentView: View {
         Task {
             await model.reload()
             restoreSelection()
-            await model.loadHistory()
+            await model.loadInfoFiles()
         }
     }
 }
@@ -578,6 +597,8 @@ struct SettingsView: View {
     @Binding var romPath: String
     @Binding var chdPath: String
     @Binding var historyPath: String
+    @Binding var mameinfoPath: String
+    @Binding var commandPath: String
     @Binding var catverPath: String
     @Binding var artworkPath: String
     var onSave: () -> Void
@@ -596,6 +617,10 @@ struct SettingsView: View {
                     chooseDirectory: true, prompt: "~/chds")
             pathRow(title: "History file (optional)", text: $historyPath,
                     chooseDirectory: false, prompt: "~/history.xml or history.dat")
+            pathRow(title: "mameinfo.dat (optional)", text: $mameinfoPath,
+                    chooseDirectory: false, prompt: "~/mameinfo.dat")
+            pathRow(title: "command.dat (optional)", text: $commandPath,
+                    chooseDirectory: false, prompt: "~/command.dat")
             pathRow(title: "catver.ini (optional)", text: $catverPath,
                     chooseDirectory: false, prompt: "~/catver.ini")
             pathRow(title: "Artwork folder (optional)", text: $artworkPath,

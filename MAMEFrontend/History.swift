@@ -1,5 +1,28 @@
 import Foundation
 
+/// The reference-text sources shown in the inspector, each a MAME `.dat` file.
+enum InfoTab: String, CaseIterable, Identifiable {
+    case history, mameinfo, command
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .history:  return "History"
+        case .mameinfo: return "Info"
+        case .command:  return "Commands"
+        }
+    }
+
+    var fileHint: String {
+        switch self {
+        case .history:  return "history.xml / history.dat"
+        case .mameinfo: return "mameinfo.dat"
+        case .command:  return "command.dat"
+        }
+    }
+}
+
 /// Loads a History.dat-project file (modern `history.xml` or legacy
 /// `history.dat`) into a `systemShortName → entry text` index.
 enum HistoryStore {
@@ -35,16 +58,16 @@ enum HistoryStore {
         return false
     }
 
-    /// Parses the legacy `history.dat` grammar:
+    /// Parses the shared MAME `.dat` grammar used by history.dat, mameinfo.dat,
+    /// and command.dat:
     ///
     ///     $info=puckman,pacman
-    ///     $bio
-    ///     PuckMan (c) 1980 Namco.
-    ///     ...
+    ///     $bio                  ($cmd in command.dat)
+    ///     ...text...
     ///     $end
     ///
-    /// Any `$<tag>=names` line sets the current system list; `$bio` starts the
-    /// body; `$end` flushes it to every listed system.
+    /// Any `$<tag>=names` line sets the current system list; `$bio`/`$cmd` starts
+    /// the body; `$end` flushes it to every listed system.
     static func parseDAT(_ content: String) -> [String: String] {
         var index: [String: String] = [:]
         var currentNames: [String] = []
@@ -53,7 +76,7 @@ enum HistoryStore {
 
         content.enumerateLines { line, _ in
             if line.hasPrefix("$") {
-                if line.hasPrefix("$bio") {
+                if line.hasPrefix("$bio") || line.hasPrefix("$cmd") {
                     capturing = true
                     buffer = []
                 } else if line.hasPrefix("$end") {

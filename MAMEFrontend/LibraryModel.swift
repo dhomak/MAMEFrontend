@@ -61,7 +61,31 @@ final class LibraryModel {
     var hideNonGames = false
     var hideMature = false
     var genreFilter: String?
+    var chdFilter: CHDFilter = .all
     var sortOrder: [KeyPathComparator<Game>] = [KeyPathComparator(\.sortTitle)]
+
+    /// Three-way CHD filter: machines that need no disk, need one and have it,
+    /// or need one that's missing from the CHD path.
+    enum CHDFilter: String, CaseIterable, Identifiable {
+        case all, noCHD, present, missing
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .all:     return "All"
+            case .noCHD:   return "No CHD needed"
+            case .present: return "CHD present"
+            case .missing: return "CHD missing"
+            }
+        }
+        func matches(_ g: Game) -> Bool {
+            switch self {
+            case .all:     return true
+            case .noCHD:   return !g.requiresDisk
+            case .present: return g.requiresDisk && g.diskPresent
+            case .missing: return g.requiresDisk && !g.diskPresent
+            }
+        }
+    }
 
     // Persisted state
     private(set) var favorites: Set<String> = []
@@ -134,6 +158,7 @@ final class LibraryModel {
         if hideNonGames      { result = result.filter { !$0.isNonGame } }
         if hideMature        { result = result.filter { !$0.isMature } }
         if let category = genreFilter { result = result.filter { $0.category == category } }
+        if chdFilter != .all { result = result.filter { chdFilter.matches($0) } }
         if !appliedSearch.isEmpty {
             if let years = Self.parseYearQuery(appliedSearch) {
                 result = result.filter { years.contains($0.year) }
@@ -161,6 +186,7 @@ final class LibraryModel {
         hideNonGames = false
         hideMature = false
         genreFilter = nil
+        chdFilter = .all
         searchText = ""
         appliedSearch = ""
         recompute()
@@ -301,8 +327,8 @@ final class LibraryModel {
         for name in fetched.keys {
             if let g = gamesByID[name] { gamesByID[name] = updated(g) }
         }
-        // Newly-learned kinds/statuses may change a filtered view.
-        if hideNonWorking || hideNonGames { recompute() }
+        // Newly-learned kinds/statuses/disk flags may change a filtered view.
+        if hideNonWorking || hideNonGames || chdFilter != .all { recompute() }
     }
 
     /// The best on-disk item to reveal for a game: its ROM archive, or its CHD
@@ -415,6 +441,7 @@ final class LibraryModel {
         hideNonGames = false
         hideMature = false
         genreFilter = nil
+        chdFilter = .all
         searchText = ""
         appliedSearch = ""
         errorMessage = nil
@@ -687,6 +714,7 @@ final class LibraryModel {
         hideMature = defaults.bool(forKey: "fHideMature")
         let g = defaults.string(forKey: "fGenre") ?? ""
         genreFilter = g.isEmpty ? nil : g
+        chdFilter = CHDFilter(rawValue: defaults.string(forKey: "fCHD") ?? "") ?? .all
     }
 
     /// Recompute + persist filter state. Called from the view on filter changes.
@@ -704,6 +732,7 @@ final class LibraryModel {
         d.set(hideNonGames, forKey: "fHideNonGames")
         d.set(hideMature, forKey: "fHideMature")
         d.set(genreFilter ?? "", forKey: "fGenre")
+        d.set(chdFilter.rawValue, forKey: "fCHD")
     }
 
     private func saveUserData() {

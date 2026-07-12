@@ -141,7 +141,7 @@ open MAMEFrontend.xcodeproj
 ### Alpha packaging
 
 ```bash
-./package_alpha.sh          # or: VERSION=0.3.8 ./package_alpha.sh
+./package_alpha.sh          # or: VERSION=0.3.9 ./package_alpha.sh
 ```
 
 Builds Release, ad-hoc signs, and zips with `ditto`. Alpha builds aren't notarized, so testers clear Gatekeeper once (right-click → **Open**, or `xattr -dr com.apple.quarantine /Applications/MAMEFrontend.app`).

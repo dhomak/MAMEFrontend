@@ -50,7 +50,7 @@ struct ContentView: View {
 
     private var anyFilterActive: Bool {
         model.showFavoritesOnly || model.hideClones || model.hideNonWorking
-            || model.hideNonGames || model.hideMature
+            || model.hideNonGames || model.hideMature || model.chdFilter != .all
     }
 
     var body: some View {
@@ -145,6 +145,7 @@ struct ContentView: View {
             .onChange(of: model.hideNonWorking) { model.filtersChanged() }
             .onChange(of: model.hideNonGames) { model.filtersChanged() }
         .onChange(of: model.hideMature) { model.filtersChanged() }
+            .onChange(of: model.chdFilter) { model.filtersChanged() }
             .onChange(of: model.genreFilter) { model.filtersChanged() }
     }
 
@@ -608,7 +609,8 @@ struct ContentView: View {
             .pickerStyle(.segmented)
 
             if let text = model.info(infoTab, for: game) {
-                InfoTextView(text: text, preformatOnly: infoTab == .command)
+                InfoTextView(text: text, preformatOnly: infoTab == .command,
+                             commandGlyphs: infoTab == .command)
             } else if !model.isConfigured(infoTab) {
                 Text("Set \(infoTab.fileHint) in Settings to show this.")
                     .font(.caption)
@@ -657,6 +659,11 @@ struct ContentView: View {
                 Toggle("Hide non-working", isOn: $model.hideNonWorking)
                 Toggle("Hide non-games", isOn: $model.hideNonGames)
                 Toggle("Hide mature", isOn: $model.hideMature)
+                Picker("CHD", selection: $model.chdFilter) {
+                    ForEach(LibraryModel.CHDFilter.allCases) { f in
+                        Text(f.label).tag(f)
+                    }
+                }
             } label: {
                 Label("Filter", systemImage: anyFilterActive
                       ? "line.3.horizontal.decrease.circle.fill"

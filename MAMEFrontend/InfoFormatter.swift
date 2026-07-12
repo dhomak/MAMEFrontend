@@ -145,6 +145,7 @@ enum InfoFormatter {
 struct InfoTextView: View {
     let text: String
     let preformatOnly: Bool
+    var commandGlyphs: Bool = false
 
     private var blocks: [InfoBlock] {
         InfoFormatter.blocks(from: text, preformatOnly: preformatOnly)
@@ -182,7 +183,7 @@ struct InfoTextView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                 case .preformatted(let body):
-                    Text(body)
+                    Text(commandGlyphs ? CommandGlyphs.render(body) : AttributedString(body))
                         .font(.system(.caption, design: .monospaced))
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -191,8 +192,25 @@ struct InfoTextView: View {
                                     in: RoundedRectangle(cornerRadius: 5))
                 }
             }
+            if commandGlyphs, CommandGlyphs.usesStrengths(text) {
+                strengthLegend
+            }
         }
         .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Shown only when the entry uses Capcom strength tokens.
+    private var strengthLegend: some View {
+        HStack(spacing: 8) {
+            Text("Ⓟ/Ⓚ").foregroundStyle(.secondary)
+            Text("light").foregroundStyle(.blue)
+            Text("medium").foregroundStyle(.orange)
+            Text("strong").foregroundStyle(.red)
+            Text("·").foregroundStyle(.secondary)
+            Text("⇐ charge (hold)").foregroundStyle(.secondary)
+        }
+        .font(.caption2)
+        .padding(.top, 2)
     }
 }
